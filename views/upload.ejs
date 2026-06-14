@@ -1,0 +1,34 @@
+<%- include('partials/head', { pageTitle }) %>
+<div class="app-shell">
+  <%- include('partials/sidebar', { activePage: 'upload', showDashboardLink: true }) %>
+
+  <main class="app-main app-main-upload">
+    <section class="upload-page">
+      <div class="upload-page-top">
+        <div class="upload-page-title">
+          <p class="eyebrow">Загрузка отчета</p>
+          <h1>Загрузить отчет</h1>
+        </div>
+
+        <a href="/" class="button button-secondary upload-back-button">Вернуться на дашборд</a>
+      </div>
+
+      <% if (error) { %>
+        <div class="alert alert-error upload-error"><%= error %></div>
+      <% } %>
+
+      <form action="/upload" method="post" enctype="multipart/form-data" class="upload-form upload-form-home" data-upload-form>
+        <label class="file-picker file-picker-home">
+          <input type="file" name="reportZip" accept=".zip,application/zip" multiple required data-upload-input />
+          <span>Перетащите ZIP-архивы сюда<br />или нажмите, чтобы выбрать файлы</span>
+        </label>
+
+        <div class="upload-form-footer">
+          <button type="button" class="button upload-submit" data-upload-trigger>Выбрать отчеты</button>
+          <span class="upload-limit">Максимальный размер: 200 МБ</span>
+        </div>
+      </form>
+    </section>
+  </main>
+</div>
+<%- include('partials/footer') %>

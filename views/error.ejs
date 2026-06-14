@@ -1,0 +1,15 @@
+<%- include('partials/head', { pageTitle }) %>
+<div class="app-shell">
+  <%- include('partials/sidebar', { activePage: 'error', showDashboardLink: true }) %>
+
+  <main class="app-main">
+    <section class="panel">
+      <div class="empty-state">
+        <h1><%= pageTitle %></h1>
+        <p><%= message %></p>
+        <a href="/" class="button">На дашборд</a>
+      </div>
+    </section>
+  </main>
+</div>
+<%- include('partials/footer') %>

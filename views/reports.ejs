@@ -1,0 +1,52 @@
+<%- include('partials/head', { pageTitle }) %>
+<div class="app-shell">
+  <%- include('partials/sidebar', { activePage, showDashboardLink }) %>
+
+  <main class="app-main app-main-dashboard">
+    <section class="dashboard-page">
+      <div class="dashboard-shell">
+        <article class="dashboard-card dashboard-reports-page-card">
+          <div class="dashboard-card-head">
+            <div>
+              <h1>Отчеты</h1>
+            </div>
+            <a href="/upload" class="button button-secondary">Загрузить отчет</a>
+          </div>
+
+          <% if (pageReports.length) { %>
+            <div class="dashboard-reports dashboard-reports-page-list">
+              <% pageReports.forEach((report) => { %>
+                <a class="dashboard-report-row" href="/reports/<%= encodeURIComponent(report.reportId) %>">
+                  <div class="dashboard-report-main">
+                    <strong><%= report.author || 'Автор не указан' %></strong>
+                    <span><%= report.displayCreatedAt %></span>
+                    <span class="dashboard-report-id"><%= report.reportId %></span>
+                  </div>
+                  <div class="dashboard-report-pills">
+                    <span><%= report.summary.cardsCount %> карточек</span>
+                    <span><%= report.summary.eventsCount %> событий</span>
+                    <span><%= report.summary.photosCount %> фото</span>
+                  </div>
+                </a>
+              <% }) %>
+            </div>
+
+            <% if (pagination.totalPages > 1) { %>
+              <div class="dashboard-pagination">
+                <a class="button button-secondary <%= pagination.hasPrevious ? '' : 'is-disabled' %>" href="/reports?page=<%= pagination.currentPage - 1 %>" <%= pagination.hasPrevious ? '' : 'aria-disabled="true" tabindex="-1"' %>>Назад</a>
+                <span class="dashboard-pagination-info">Страница <%= pagination.currentPage %> из <%= pagination.totalPages %></span>
+                <a class="button button-secondary <%= pagination.hasNext ? '' : 'is-disabled' %>" href="/reports?page=<%= pagination.currentPage + 1 %>" <%= pagination.hasNext ? '' : 'aria-disabled="true" tabindex="-1"' %>>Вперед</a>
+              </div>
+            <% } %>
+          <% } else { %>
+            <div class="empty-state dashboard-empty-state">
+              <h3>Отчетов пока нет</h3>
+              <p>Загрузите первый ZIP-архив, чтобы они появились в этом списке.</p>
+            </div>
+          <% } %>
+        </article>
+      </div>
+    </section>
+  </main>
+</div>
+<%- include('partials/footer') %>

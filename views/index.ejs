@@ -1,0 +1,292 @@
+<%- include('partials/head', { pageTitle }) %>
+<div class="app-shell">
+  <%- include('partials/sidebar', { activePage: dashboard.hasReports ? 'dashboard' : 'upload', showDashboardLink: dashboard.hasReports }) %>
+
+  <main class="app-main <%= dashboard.hasReports ? 'app-main-dashboard' : 'app-main-upload' %>">
+    <% if (flashMessage) { %>
+      <div class="alert alert-success dashboard-flash"><%= flashMessage %></div>
+    <% } %>
+    <% if (!dashboard.hasReports) { %>
+      <section class="upload-page">
+        <div class="upload-page-top">
+          <div class="upload-page-title">
+            <p class="eyebrow">Загрузка отчета</p>
+            <h1>Загрузить отчет</h1>
+          </div>
+
+          <a href="/" class="button button-secondary upload-back-button">Вернуться на дашборд</a>
+        </div>
+
+        <form action="/upload" method="post" enctype="multipart/form-data" class="upload-form upload-form-home" data-upload-form>
+          <label class="file-picker file-picker-home">
+            <input type="file" name="reportZip" accept=".zip,application/zip" multiple required data-upload-input />
+            <span>Перетащите ZIP-архивы сюда<br />или нажмите, чтобы выбрать файлы</span>
+          </label>
+
+          <div class="upload-form-footer">
+            <button type="button" class="button upload-submit" data-upload-trigger>Выбрать отчеты</button>
+            <span class="upload-limit">Максимальный размер: 200 МБ</span>
+          </div>
+        </form>
+      </section>
+    <% } else { %>
+      <% const currentReport = dashboard.latestReport || latestReport || null; %>
+      <% const topMetrics = Array.isArray(dashboard.topMetrics) && dashboard.topMetrics.length ? dashboard.topMetrics : [
+        { label: 'Партии', value: dashboard.cardsCount, tone: 'dark' },
+        { label: 'Проблемные партии', value: dashboard.problemsCount, tone: 'warning' },
+        { label: 'Карантин', value: dashboard.quarantineCount, tone: 'accent' },
+        { label: 'Потери (шт.)', value: dashboard.lossCount || 0, tone: 'danger' },
+        { label: 'Продано (шт.)', value: dashboard.soldCount, tone: 'success' }
+      ]; %>
+      <% const currentSummary = currentReport && currentReport.summary ? currentReport.summary : {}; %>
+      <% const problemCards = currentReport && Array.isArray(currentReport.problemCards) ? currentReport.problemCards : []; %>
+      <% const latestEvents = currentReport && Array.isArray(currentReport.latestEvents) ? currentReport.latestEvents : []; %>
+      <% const photoItems = currentReport && Array.isArray(currentReport.photoItems) ? currentReport.photoItems : []; %>
+      <% const photoUrlFor = currentReport && typeof currentReport.getPhotoUrl === 'function' ? currentReport.getPhotoUrl : (() => ''); %>
+      <% const chartTabs = dashboard.chartTabs || {}; %>
+      <section class="dashboard-page">
+        <div class="dashboard-shell">
+          <section class="dashboard-stats dashboard-stats-top">
+            <% topMetrics.forEach((metric, index) => { %>
+              <article class="dashboard-stat <%= index === 0 ? 'dashboard-stat-dark' : `dashboard-stat-${metric.tone}` %>">
+                <span><%= metric.label %></span>
+                <strong><%= metric.value %></strong>
+              </article>
+            <% }) %>
+          </section>
+
+          <section class="dashboard-layout">
+            <div class="dashboard-main-column">
+              <% if (false) { %>
+              <article class="dashboard-card dashboard-hero-card">
+                <div class="dashboard-card-head">
+                  <div>
+                    <p class="eyebrow">Последний отчет</p>
+                    <h2><%= currentReport ? currentReport.reportId : 'Нет отчета' %></h2>
+                  </div>
+                  <% if (currentReport) { %>
+                    <a href="/reports/<%= encodeURIComponent(currentReport.reportId) %>" class="button button-secondary">Открыть отчет</a>
+                  <% } %>
+                </div>
+
+                <% if (currentReport) { %>
+                  <div class="dashboard-meta-grid">
+                    <div><span>Создан</span><strong><%= currentReport.displayCreatedAt %></strong></div>
+                    <div><span>Автор</span><strong><%= currentReport.author %></strong></div>
+                    <div><span>Устройство</span><strong><%= currentReport.deviceId || 'Не указано' %></strong></div>
+                    <div><span>Место</span><strong><%= currentReport.testLocation || 'Не указано' %></strong></div>
+                  </div>
+
+                  <div class="dashboard-mini-stats">
+                    <div><span>Карточек</span><strong><%= currentSummary.cardsCount || 0 %></strong></div>
+                    <div><span>Событий</span><strong><%= currentSummary.eventsCount || 0 %></strong></div>
+                    <div><span>Фото</span><strong><%= currentSummary.photosCount || 0 %></strong></div>
+                    <div><span>Проблем</span><strong><%= currentSummary.problemsCount || 0 %></strong></div>
+                    <div><span>Активных</span><strong><%= currentSummary.activeCount || 0 %></strong></div>
+                    <div><span>Проданных</span><strong><%= currentSummary.soldCount || 0 %></strong></div>
+                  </div>
+                <% } else { %>
+                  <div class="empty-state dashboard-empty-state">
+                    <h3>Отчет не загружен</h3>
+                    <p>Загрузите первый ZIP-архив, чтобы увидеть сводку по отчету, карточкам, событиям и фото.</p>
+                  </div>
+                <% } %>
+              </article>
+              <% } %>
+
+              <article class="dashboard-card dashboard-reports-card">
+                <div class="dashboard-card-head">
+                  <div>
+                    <h2>Последние отчеты</h2>
+                  </div>
+                  <a href="/reports" class="button button-secondary">Показать все</a>
+                </div>
+
+                <div class="dashboard-reports">
+                  <% dashboard.recentReports.forEach((report) => { %>
+                    <a class="dashboard-report-row" href="/reports/<%= encodeURIComponent(report.reportId) %>">
+                      <div class="dashboard-report-main">
+                        <strong><%= report.author || 'Автор не указан' %></strong>
+                        <span><%= report.displayCreatedAt %></span>
+                      </div>
+                      <div class="dashboard-report-pills">
+                        <span><%= report.summary.cardsCount %> карточек</span>
+                        <span><%= report.summary.eventsCount %> событий</span>
+                        <span><%= report.summary.photosCount %> фото</span>
+                      </div>
+                    </a>
+                  <% }) %>
+                </div>
+              </article>
+            </div>
+
+            <aside class="dashboard-side-column">
+              <article class="dashboard-card dashboard-tabs-card" data-dashboard-tabs>
+                <div class="dashboard-card-head dashboard-tabs-head">
+                  <div>
+                    <h2>Сводка</h2>
+                  </div>
+
+                  <div class="dashboard-tab-switcher" role="tablist" aria-label="Статистика дашборда">
+                    <button type="button" class="dashboard-tab-button active" data-dashboard-tab-button="stages" aria-selected="true">По стадиям</button>
+                    <button type="button" class="dashboard-tab-button" data-dashboard-tab-button="statuses" aria-selected="false">По партиям</button>
+                  </div>
+                </div>
+
+                <div class="dashboard-tab-panels">
+                  <section class="dashboard-tab-panel active" data-dashboard-tab-panel="stages" role="tabpanel">
+                    <% if (chartTabs.stages && chartTabs.stages.total) { %>
+                      <div class="dashboard-donut-wrap">
+                        <div class="dashboard-donut" style="background: <%= chartTabs.stages.chartBackground %>;">
+                          <div>
+                            <strong><%= chartTabs.stages.total %></strong>
+                            <span><%= chartTabs.stages.totalLabel %></span>
+                          </div>
+                        </div>
+                        <div class="dashboard-donut-legend">
+                          <% chartTabs.stages.legend.forEach((item) => { %>
+                            <div>
+                              <span class="dashboard-donut-dot" style="background:<%= item.color %>"></span>
+                              <strong><%= item.label %></strong>
+                              <em><%= item.value %> (<%= Math.round((item.value / chartTabs.stages.total) * 100) %>%)</em>
+                            </div>
+                          <% }) %>
+                        </div>
+                      </div>
+                    <% } else { %>
+                      <div class="empty-state dashboard-empty-state dashboard-empty-state-compact">
+                        <h3>Нет данных по стадиям</h3>
+                      </div>
+                    <% } %>
+                  </section>
+
+                  <section class="dashboard-tab-panel" data-dashboard-tab-panel="statuses" role="tabpanel" hidden>
+                    <% if (chartTabs.statuses && chartTabs.statuses.total) { %>
+                      <div class="dashboard-donut-wrap">
+                        <div class="dashboard-donut" style="background: <%= chartTabs.statuses.chartBackground %>;">
+                          <div>
+                            <strong><%= chartTabs.statuses.total %></strong>
+                            <span><%= chartTabs.statuses.totalLabel %></span>
+                          </div>
+                        </div>
+                        <div class="dashboard-donut-legend">
+                          <% chartTabs.statuses.legend.forEach((item) => { %>
+                            <div>
+                              <span class="dashboard-donut-dot" style="background:<%= item.color %>"></span>
+                              <strong><%= item.label %></strong>
+                              <em><%= item.value %> (<%= Math.round((item.value / chartTabs.statuses.total) * 100) %>%)</em>
+                            </div>
+                          <% }) %>
+                        </div>
+                      </div>
+                    <% } else { %>
+                      <div class="empty-state dashboard-empty-state dashboard-empty-state-compact">
+                        <h3>Нет данных по статусам</h3>
+                      </div>
+                    <% } %>
+                  </section>
+                </div>
+              </article>
+            </aside>
+          </section>
+
+          <section class="dashboard-grid dashboard-grid-secondary">
+            <article class="dashboard-card dashboard-list-card">
+              <div class="dashboard-card-head">
+                <div>
+                  <p class="eyebrow">Проблемные карточки</p>
+                  <h2>Что требует внимания</h2>
+                </div>
+                <% if (currentReport) { %><span class="dashboard-card-hint"><%= problemCards.length %> шт.</span><% } %>
+              </div>
+
+              <% if (currentReport && problemCards.length) { %>
+                <div class="dashboard-item-list">
+                  <% problemCards.forEach((card) => { %>
+                    <article class="dashboard-item">
+                      <div class="dashboard-item-top">
+                        <strong><%= card.code %></strong>
+                        <span><%= card.stage || card.batchStatus || '—' %></span>
+                      </div>
+                      <p><%= [card.cultureName, card.speciesName, card.varietyName].filter(Boolean).join(' · ') || 'Без названия' %></p>
+                      <div class="dashboard-item-meta">
+                        <% if (card.problem) { %><span>Проблема: <%= card.problem %></span><% } %>
+                        <% if (card.risk) { %><span>Риск: <%= card.risk %></span><% } %>
+                        <% if (card.locationDescription) { %><span>Место: <%= card.locationDescription %></span><% } %>
+                      </div>
+                    </article>
+                  <% }) %>
+                </div>
+              <% } else { %>
+                <div class="empty-state dashboard-empty-state">
+                  <h3>Проблемных карточек нет</h3>
+                  <p>Если в отчете есть проблемы, они появятся здесь автоматически.</p>
+                </div>
+              <% } %>
+            </article>
+
+            <article class="dashboard-card dashboard-list-card">
+              <div class="dashboard-card-head">
+                <div>
+                  <p class="eyebrow">Последние события</p>
+                  <h2>Журнал последнего отчета</h2>
+                </div>
+                <% if (currentReport) { %><span class="dashboard-card-hint"><%= latestEvents.length %> шт.</span><% } %>
+              </div>
+
+              <% if (currentReport && latestEvents.length) { %>
+                <div class="dashboard-item-list">
+                  <% latestEvents.forEach((event) => { %>
+                    <article class="dashboard-item">
+                      <div class="dashboard-item-top">
+                        <strong><%= event.title || event.type %></strong>
+                        <span><%= event.date || '—' %></span>
+                      </div>
+                      <p><%= event.cardCode %> · <%= event.cardCulture || 'Без культуры' %></p>
+                      <div class="dashboard-item-meta">
+                        <span>ID: <%= event.eventId %></span>
+                        <span>Создал: <%= event.createdBy || 'Неизвестно' %></span>
+                        <% if (event.photoNote) { %><span>Фото: <%= event.photoNote %></span><% } %>
+                      </div>
+                    </article>
+                  <% }) %>
+                </div>
+              <% } else { %>
+                <div class="empty-state dashboard-empty-state">
+                  <h3>Событий пока нет</h3>
+                  <p>Журнал последнего отчета появится после загрузки ZIP.</p>
+                </div>
+              <% } %>
+            </article>
+
+            <article class="dashboard-card dashboard-gallery-card">
+              <div class="dashboard-card-head">
+                <div>
+                  <p class="eyebrow">Фото за период</p>
+                  <h2>Последние изображения</h2>
+                </div>
+                <% if (currentReport) { %><span class="dashboard-card-hint"><%= photoItems.length %> шт.</span><% } %>
+              </div>
+
+              <% if (currentReport && photoItems.length) { %>
+                <div class="dashboard-gallery">
+                  <% photoItems.forEach((item) => { %>
+                    <button type="button" class="dashboard-thumb" data-photo-url="<%= photoUrlFor(item.photo) %>" data-photo-label="<%= item.label %>">
+                      <img src="<%= photoUrlFor(item.photo) %>" alt="<%= item.label %>" loading="lazy" />
+                    </button>
+                  <% }) %>
+                </div>
+              <% } else { %>
+                <div class="empty-state dashboard-empty-state">
+                  <h3>Фото не найдены</h3>
+                  <p>В последнем отчете нет доступных фотографий.</p>
+                </div>
+              <% } %>
+            </article>
+          </section>
+        </div>
+      </section>
+    <% } %>
+  </main>
+</div>
+<%- include('partials/footer') %>

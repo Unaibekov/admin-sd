@@ -1,0 +1,76 @@
+<aside class="sidebar">
+  <div class="sidebar-brand-block">
+    <a class="sidebar-brand" href="/">
+      <span class="sidebar-brand-mark">S</span>
+      <span class="sidebar-brand-text">
+        <strong>Sadovnik</strong>
+        <em>Admin</em>
+      </span>
+    </a>
+
+    <a href="/upload" class="button sidebar-primary-action">Загрузить отчет</a>
+  </div>
+
+  <nav class="sidebar-nav" aria-label="Основная навигация">
+    <% if (showDashboardLink) { %>
+      <a class="sidebar-item <%= activePage === 'dashboard' ? 'active' : '' %>" href="/">
+        <span class="sidebar-item-icon">◷</span>
+        <span>Главная</span>
+      </a>
+    <% } else { %>
+      <a class="sidebar-item active" href="/">
+        <span class="sidebar-item-icon">◷</span>
+      <span>Главная</span>
+      </a>
+    <% } %>
+    <a class="sidebar-item <%= activePage === 'reports' ? 'active' : '' %>" href="/reports">
+      <span class="sidebar-item-icon">▤</span>
+      <span>Отчеты</span>
+    </a>
+    <span class="sidebar-item">
+      <span class="sidebar-item-icon">▦</span>
+      <span>Карточки</span>
+    </span>
+    <span class="sidebar-item">
+      <span class="sidebar-item-icon">△</span>
+      <span>Проблемы</span>
+    </span>
+    <span class="sidebar-item">
+      <span class="sidebar-item-icon">✿</span>
+      <span>Культуры</span>
+    </span>
+    <span class="sidebar-item">
+      <span class="sidebar-item-icon">▤</span>
+      <span>Стадии</span>
+    </span>
+    <span class="sidebar-item">
+      <span class="sidebar-item-icon">◫</span>
+      <span>Пользователи</span>
+    </span>
+    <span class="sidebar-item">
+      <span class="sidebar-item-icon">⇪</span>
+      <span>Экспорт данных</span>
+    </span>
+    <span class="sidebar-item">
+      <span class="sidebar-item-icon">⚙</span>
+      <span>Настройки</span>
+    </span>
+    <form action="/admin/reports/clear" method="post" class="sidebar-clear-form" onsubmit="return confirm('Очистить все отчеты? Это действие нельзя отменить.');">
+      <button type="submit" class="sidebar-item sidebar-item-danger">
+        <span class="sidebar-item-icon">⟲</span>
+        <span>Очистить отчеты</span>
+      </button>
+    </form>
+  </nav>
+
+  <section class="sidebar-card">
+    <div class="sidebar-user">
+      <div class="sidebar-avatar">A</div>
+      <div class="sidebar-user-copy">
+        <strong>Локальный режим</strong>
+        <p>Без авторизации, без API, только файловое хранение.</p>
+        <a href="#" class="sidebar-more">Подробнее</a>
+      </div>
+    </div>
+  </section>
+</aside>
