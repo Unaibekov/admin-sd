@@ -8,7 +8,7 @@ const {
   processUploadedReport,
   safeReportId,
   reportFilePath
-} = require('./reports');
+} = require('./reportStore');
 
 function createApp() {
   const app = express();
