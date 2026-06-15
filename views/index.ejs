@@ -31,6 +31,21 @@
       </section>
     <% } else { %>
       <% const currentReport = dashboard.latestReport || latestReport || null; %>
+      <% const currentReportId = currentReport ? currentReport.reportId : ''; %>
+      <% const dashboardUrl = (params = {}) => {
+        const search = new URLSearchParams();
+        if (currentReportId) {
+          search.set('reportId', currentReportId);
+        }
+        Object.entries(params).forEach(([key, value]) => {
+          if (value !== undefined && value !== null && String(value).trim() !== '') {
+            search.set(key, String(value));
+          }
+        });
+        const query = search.toString();
+        return query ? `/?${query}` : '/';
+      }; %>
+      <% const reportUrl = (reportId) => `/?reportId=${encodeURIComponent(reportId)}`; %>
       <% const topMetrics = Array.isArray(dashboard.topMetrics) && dashboard.topMetrics.length ? dashboard.topMetrics : [
         { label: 'Партии', value: dashboard.cardsCount, tone: 'dark' },
         { label: 'Проблемные партии', value: dashboard.problemsCount, tone: 'warning' },
@@ -40,7 +55,6 @@
       ]; %>
       <% const currentSummary = currentReport && currentReport.summary ? currentReport.summary : {}; %>
       <% const problemCards = currentReport && Array.isArray(currentReport.problemCards) ? currentReport.problemCards : []; %>
-      <% const latestEvents = currentReport && Array.isArray(currentReport.latestEvents) ? currentReport.latestEvents : []; %>
       <% const photoItems = currentReport && Array.isArray(currentReport.photoItems) ? currentReport.photoItems : []; %>
       <% const photoUrlFor = currentReport && typeof currentReport.getPhotoUrl === 'function' ? currentReport.getPhotoUrl : (() => ''); %>
       <% const chartTabs = dashboard.chartTabs || {}; %>
@@ -62,7 +76,7 @@
                 <div class="dashboard-card-head">
                   <div>
                     <p class="eyebrow">Последний отчет</p>
-                    <h2><%= currentReport ? currentReport.reportId : 'Нет отчета' %></h2>
+                  <h2>События</h2>
                   </div>
                   <% if (currentReport) { %>
                     <a href="/reports/<%= encodeURIComponent(currentReport.reportId) %>" class="button button-secondary">Открыть отчет</a>
@@ -104,7 +118,7 @@
 
                 <div class="dashboard-reports">
                   <% dashboard.recentReports.forEach((report) => { %>
-                    <a class="dashboard-report-row" href="/reports/<%= encodeURIComponent(report.reportId) %>">
+                    <a class="dashboard-report-row <%= currentReportId === report.reportId ? 'active' : '' %>" href="<%= reportUrl(report.reportId) %>">
                       <div class="dashboard-report-main">
                         <strong><%= report.author || 'Автор не указан' %></strong>
                         <span><%= report.displayCreatedAt %></span>
@@ -191,70 +205,111 @@
           </section>
 
           <section class="dashboard-grid dashboard-grid-secondary">
-            <article class="dashboard-card dashboard-list-card">
-              <div class="dashboard-card-head">
+            <article class="dashboard-card dashboard-list-card dashboard-journal-card">
+              <div class="dashboard-card-head dashboard-journal-head">
                 <div>
-                  <p class="eyebrow">Проблемные карточки</p>
-                  <h2>Что требует внимания</h2>
+                  <h2>События</h2>
                 </div>
-                <% if (currentReport) { %><span class="dashboard-card-hint"><%= problemCards.length %> шт.</span><% } %>
+                <% if (currentReport) { %>
+                  <a class="dashboard-card-hint dashboard-card-link" href="<%= dashboardUrl({ stage: 'all', subtab: 'all', entryId: '' }) %>">Показать все</a>
+                <% } %>
               </div>
 
-              <% if (currentReport && problemCards.length) { %>
-                <div class="dashboard-item-list">
-                  <% problemCards.forEach((card) => { %>
-                    <article class="dashboard-item">
-                      <div class="dashboard-item-top">
-                        <strong><%= card.code %></strong>
-                        <span><%= card.stage || card.batchStatus || '—' %></span>
-                      </div>
-                      <p><%= [card.cultureName, card.speciesName, card.varietyName].filter(Boolean).join(' · ') || 'Без названия' %></p>
-                      <div class="dashboard-item-meta">
-                        <% if (card.problem) { %><span>Проблема: <%= card.problem %></span><% } %>
-                        <% if (card.risk) { %><span>Риск: <%= card.risk %></span><% } %>
-                        <% if (card.locationDescription) { %><span>Место: <%= card.locationDescription %></span><% } %>
-                      </div>
-                    </article>
+              <% if (currentReport && currentReport.journal) { %>
+                <% const journal = currentReport.journal; %>
+                <div class="dashboard-journal-report">
+                  <strong><%= journal.reportTitle || currentReport.reportId %></strong>
+                  <span><%= journal.totalEntries %> событий</span>
+                </div>
+
+                <div class="dashboard-journal-tabs" role="tablist" aria-label="Фильтр по стадиям">
+                  <% journal.stageTabs.forEach((tab) => { %>
+                    <a
+                      class="dashboard-journal-tab <%= tab.active ? 'active' : '' %>"
+                      href="<%= dashboardUrl({ stage: tab.key, subtab: 'all', entryId: '' }) %>"
+                      aria-current="<%= tab.active ? 'true' : 'false' %>"
+                    >
+                      <span><%= tab.label %></span>
+                      <strong><%= tab.count %></strong>
+                    </a>
                   <% }) %>
                 </div>
-              <% } else { %>
-                <div class="empty-state dashboard-empty-state">
-                  <h3>Проблемных карточек нет</h3>
-                  <p>Если в отчете есть проблемы, они появятся здесь автоматически.</p>
-                </div>
-              <% } %>
-            </article>
 
-            <article class="dashboard-card dashboard-list-card">
-              <div class="dashboard-card-head">
-                <div>
-                  <p class="eyebrow">Последние события</p>
-                  <h2>Журнал последнего отчета</h2>
-                </div>
-                <% if (currentReport) { %><span class="dashboard-card-hint"><%= latestEvents.length %> шт.</span><% } %>
-              </div>
-
-              <% if (currentReport && latestEvents.length) { %>
-                <div class="dashboard-item-list">
-                  <% latestEvents.forEach((event) => { %>
-                    <article class="dashboard-item">
-                      <div class="dashboard-item-top">
-                        <strong><%= event.title || event.type %></strong>
-                        <span><%= event.date || '—' %></span>
-                      </div>
-                      <p><%= event.cardCode %> · <%= event.cardCulture || 'Без культуры' %></p>
-                      <div class="dashboard-item-meta">
-                        <span>ID: <%= event.eventId %></span>
-                        <span>Создал: <%= event.createdBy || 'Неизвестно' %></span>
-                        <% if (event.photoNote) { %><span>Фото: <%= event.photoNote %></span><% } %>
-                      </div>
-                    </article>
+                <div class="dashboard-journal-subtabs" role="tablist" aria-label="Подтипы событий">
+                  <% journal.subtabTabs.forEach((tab) => { %>
+                    <a
+                      class="dashboard-journal-subtab <%= tab.active ? 'active' : '' %>"
+                      href="<%= dashboardUrl({ stage: journal.selectedStage, subtab: tab.key, entryId: '' }) %>"
+                      aria-current="<%= tab.active ? 'true' : 'false' %>"
+                    >
+                      <span><%= tab.label %></span>
+                      <strong><%= tab.count %></strong>
+                    </a>
                   <% }) %>
                 </div>
+
+                <% if (journal.entries.length) { %>
+                  <div class="dashboard-journal-feed">
+                    <% journal.entries.forEach((entry) => { %>
+                      <a class="dashboard-journal-entry <%= entry.isProblem ? 'dashboard-journal-entry-problem' : '' %> <%= entry.entryId === journal.selectedEntryId ? 'active' : '' %>" href="<%= dashboardUrl({ stage: journal.selectedStage, subtab: journal.selectedSubtab, entryId: entry.entryId }) %>">
+                        <div class="dashboard-journal-entry-top">
+                          <strong><%= entry.type %></strong>
+                          <span><%= entry.date || '—' %></span>
+                        </div>
+                        <div class="dashboard-journal-entry-card">
+                          <span><%= entry.cardCode %></span>
+                          <p><%= entry.cardCulture || 'Без культуры' %></p>
+                        </div>
+                        <div class="dashboard-journal-entry-meta">
+                          <span>Стадия: <%= entry.stage || '—' %></span>
+                          <span>Кол-во: <%= entry.quantity !== '' && entry.quantity !== null && entry.quantity !== undefined ? entry.quantity : '—' %></span>
+                          <% if (entry.hasDelta) { %>
+                            <span>Остаток: <%= entry.delta > 0 ? '+' + entry.delta : entry.delta %></span>
+                          <% } %>
+                          <span>Автор: <%= entry.createdBy || 'Неизвестно' %></span>
+                          <% if (entry.hasPhotos) { %>
+                            <span>Фото: <%= entry.photoCount %></span>
+                          <% } %>
+                        </div>
+                        <% if (entry.comment) { %>
+                          <p class="dashboard-journal-entry-comment"><%= entry.comment %></p>
+                        <% } %>
+                      </a>
+                    <% }) %>
+                  </div>
+                <% } else { %>
+                  <div class="empty-state dashboard-empty-state dashboard-empty-state-compact">
+                    <h3>Событий нет</h3>
+                    <p>Для выбранного фильтра журнал пуст.</p>
+                  </div>
+                <% } %>
+
+                <% if (journal.selectedEntry) { %>
+                  <article class="dashboard-journal-detail">
+                    <div class="dashboard-journal-detail-head">
+                      <strong><%= journal.selectedEntry.type %></strong>
+                      <span><%= journal.selectedEntry.date || '—' %></span>
+                    </div>
+                    <div class="dashboard-journal-detail-grid">
+                      <div><span>Стадия</span><strong><%= journal.selectedEntry.stage || '—' %></strong></div>
+                      <div><span>Тип</span><strong><%= journal.selectedEntry.subtype || 'all' %></strong></div>
+                      <div><span>Количество</span><strong><%= journal.selectedEntry.quantity !== '' && journal.selectedEntry.quantity !== null && journal.selectedEntry.quantity !== undefined ? journal.selectedEntry.quantity : '—' %></strong></div>
+                      <div><span>Автор</span><strong><%= journal.selectedEntry.createdBy || 'Неизвестно' %></strong></div>
+                    </div>
+                    <% if (journal.selectedEntry.comment) { %>
+                      <p class="dashboard-journal-detail-text"><%= journal.selectedEntry.comment %></p>
+                    <% } %>
+                    <% if (journal.selectedEntry.hasPhotos) { %>
+                      <div class="dashboard-journal-detail-photos">
+                        <span>Фото: <%= journal.selectedEntry.photoCount %></span>
+                      </div>
+                    <% } %>
+                  </article>
+                <% } %>
               <% } else { %>
                 <div class="empty-state dashboard-empty-state">
                   <h3>Событий пока нет</h3>
-                  <p>Журнал последнего отчета появится после загрузки ZIP.</p>
+                  <p>Журнал появится после загрузки ZIP.</p>
                 </div>
               <% } %>
             </article>
@@ -262,10 +317,11 @@
             <article class="dashboard-card dashboard-gallery-card">
               <div class="dashboard-card-head">
                 <div>
-                  <p class="eyebrow">Фото за период</p>
-                  <h2>Последние изображения</h2>
+                  <h2>Фото</h2>
                 </div>
-                <% if (currentReport) { %><span class="dashboard-card-hint"><%= photoItems.length %> шт.</span><% } %>
+                <% if (currentReport) { %>
+                  <a class="dashboard-card-hint dashboard-card-link" href="/reports/<%= encodeURIComponent(currentReport.reportId) %>">Показать все</a>
+                <% } %>
               </div>
 
               <% if (currentReport && photoItems.length) { %>

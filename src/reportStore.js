@@ -869,6 +869,10 @@ function normalizeCard(card, index, reportId) {
     'locationDescription',
     'location',
     'place',
+    'problem',
+    'problemType',
+    'risk',
+    'riskLevel',
     'createdAt',
     'updatedAt',
     'events',
@@ -876,8 +880,6 @@ function normalizeCard(card, index, reportId) {
     'photoFiles',
     'photoPaths',
     'images',
-    'problem',
-    'risk',
     'date',
     'author',
     'extraFields'
@@ -909,7 +911,9 @@ function normalizeCard(card, index, reportId) {
   const locationDescription = firstString(card, ['locationDescription', 'location', 'place', 'position']);
   const location = locationDescription;
   const problem = firstString(card, ['problem']);
+  const problemType = firstString(card, ['problemType']) || problem;
   const risk = firstString(card, ['risk']);
+  const riskLevel = firstString(card, ['riskLevel']) || risk;
   const createdAt = firstString(card, ['createdAt', 'date', 'time']);
   const updatedAt = firstString(card, ['updatedAt']);
   const date = createdAt;
@@ -944,7 +948,9 @@ function normalizeCard(card, index, reportId) {
     locationDescription,
     location,
     problem,
+    problemType,
     risk,
+    riskLevel,
     createdAt,
     updatedAt,
     date,
@@ -976,7 +982,17 @@ function deriveSummary(rawSummary, cards) {
   for (const card of cards) {
     summary.eventsCount += card.events.length;
     summary.photosCount += card.photos.length + card.events.reduce((total, event) => total + event.photos.length, 0);
-    if (card.problem || card.risk || card.events.some((event) => event.problem || event.risk)) {
+    if (
+      card.problem ||
+      card.problemType ||
+      card.risk ||
+      card.riskLevel ||
+      String(card.batchStatus || card.status || '').toLowerCase().includes('problem') ||
+      String(card.batchStatus || card.status || '').toLowerCase().includes('risk') ||
+      String(card.batchStatus || card.status || '').toLowerCase().includes('quarantine') ||
+      String(card.sterilityStatus || '').toLowerCase().includes('contamin') ||
+      card.events.some((event) => event.problem || event.problemType || event.risk || event.riskLevel)
+    ) {
       summary.problemsCount += 1;
     }
 

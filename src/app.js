@@ -1,6 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
+const { buildJournalModel } = require('./journalModel');
 const {
   listReports,
   clearAllReports,
@@ -28,9 +29,12 @@ function createApp() {
   app.get('/', async (req, res, next) => {
     try {
       const reports = await listReports();
-      const latestReport = reports.length ? await getReport(reports[0].reportId) : null;
       const detailedReports = await Promise.all(reports.map((report) => getReport(report.reportId)));
-      const dashboard = buildDashboard(reports, latestReport, detailedReports.filter(Boolean));
+      const loadedReports = detailedReports.filter(Boolean);
+      const latestReport = loadedReports.length ? loadedReports[0] : null;
+      const selectedReportId = safeReportId(req.query.reportId || (latestReport && latestReport.reportId) || '');
+      const selectedReport = loadedReports.find((report) => report.reportId === selectedReportId) || latestReport;
+      const dashboard = buildDashboard(reports, selectedReport, loadedReports, req.query);
       const flashMessage = buildFlashMessage(req.query);
 
       res.render('index', {
@@ -239,7 +243,7 @@ function buildFlashMessage(query) {
   return parts.join(' ');
 }
 
-function buildDashboard(reports, latestReport = null, reportModels = []) {
+function buildDashboard(reports, selectedReport = null, reportModels = [], query = {}) {
   const dashboard = {
     reportsCount: reports.length,
     cardsCount: 0,
@@ -281,11 +285,13 @@ function buildDashboard(reports, latestReport = null, reportModels = []) {
     { label: 'Продано', value: dashboard.soldCount, tone: 'success' }
   ];
 
-  const chartSourceReports = reportModels.length ? reportModels : latestReport ? [latestReport] : [];
+  const chartSourceReports = reportModels.length ? reportModels : selectedReport ? [selectedReport] : [];
 
-  if (latestReport) {
-    const cards = latestReport.cards || [];
-    const problemCards = cards.filter((card) => Boolean(card.problem || card.risk || card.events.some((event) => event.problem || event.risk)));
+  if (selectedReport) {
+    const problemCards = collectProblemEntriesFromReports(reportModels.length ? reportModels : [selectedReport])
+      .sort((left, right) => problemEntryTimestamp(right) - problemEntryTimestamp(left))
+      .slice(0, 5);
+    const cards = selectedReport.cards || [];
     const latestEvents = cards
       .flatMap((card) => card.events.map((event) => ({
         ...event,
@@ -293,7 +299,7 @@ function buildDashboard(reports, latestReport = null, reportModels = []) {
         cardCulture: [card.cultureName, card.speciesName, card.varietyName].filter(Boolean).join(' · ')
       })))
       .sort((left, right) => new Date(right.createdAt || right.date || 0).getTime() - new Date(left.createdAt || left.date || 0).getTime())
-      .slice(0, 6);
+      .slice(0, 5);
 
     const photoItems = [];
     for (const card of cards) {
@@ -307,18 +313,21 @@ function buildDashboard(reports, latestReport = null, reportModels = []) {
       }
     }
 
+    const journal = buildJournalModel(selectedReport, query);
+
     dashboard.latestReport = {
-      reportId: latestReport.reportId,
-      displayCreatedAt: latestReport.displayCreatedAt,
-      author: latestReport.user && latestReport.user.displayName ? latestReport.user.displayName : latestReport.author,
-      deviceId: latestReport.deviceId,
-      testLocation: latestReport.testLocation,
-      summary: latestReport.summary,
+      reportId: selectedReport.reportId,
+      displayCreatedAt: selectedReport.displayCreatedAt,
+      author: selectedReport.user && selectedReport.user.displayName ? selectedReport.user.displayName : selectedReport.author,
+      deviceId: selectedReport.deviceId,
+      testLocation: selectedReport.testLocation,
+      summary: selectedReport.summary,
       cardsCount: cards.length,
-      problemCards: problemCards.slice(0, 5),
+      problemCards,
       latestEvents,
-      photoItems: photoItems.slice(0, 8),
-      getPhotoUrl: latestReport.getPhotoUrl.bind(latestReport)
+      photoItems: photoItems.slice(0, 12),
+      getPhotoUrl: selectedReport.getPhotoUrl.bind(selectedReport),
+      journal
     };
 
     const chartCards = chartSourceReports.flatMap((report) => report.cards || []);
@@ -400,6 +409,122 @@ function buildChartTabFromCards(cards, meta, getKey, palette) {
       ? `conic-gradient(${slices.map((slice) => `${slice.color} ${slice.start.toFixed(2)}% ${slice.end.toFixed(2)}%`).join(', ')})`
       : 'conic-gradient(#e5e7eb 0 100%)'
   };
+}
+
+function hasProblemSignals(card) {
+  if (!card) {
+    return false;
+  }
+
+  const statusText = String(card.batchStatus || card.status || '').toLowerCase();
+  const sterilityText = String(card.sterilityStatus || '').toLowerCase();
+  const eventProblem = (card.events || []).some((event) => event && (event.problem || event.problemType || event.risk || event.riskLevel));
+
+  return Boolean(
+    card.problem ||
+    card.problemType ||
+    card.risk ||
+    card.riskLevel ||
+    statusText.includes('problem') ||
+    statusText.includes('risk') ||
+    statusText.includes('quarantine') ||
+    sterilityText.includes('contamin') ||
+    eventProblem
+  );
+}
+
+function collectProblemEntriesFromReports(reports) {
+  const entries = [];
+
+  for (const report of reports || []) {
+    const cards = Array.isArray(report.cards) ? report.cards : [];
+
+    for (const card of cards) {
+      if (hasProblemSignals(card)) {
+        entries.push({
+          ...buildProblemEntry(card),
+          reportId: report.reportId,
+          displayCreatedAt: report.displayCreatedAt
+        });
+      }
+
+      for (const event of card.events || []) {
+        if (event && (event.problem || event.problemType || event.risk || event.riskLevel)) {
+          entries.push({
+            ...buildProblemEntry(card, event),
+            reportId: report.reportId,
+            displayCreatedAt: report.displayCreatedAt
+          });
+        }
+      }
+    }
+  }
+
+  return entries;
+}
+
+function buildProblemEntry(card, event = null) {
+  const source = event || card || {};
+  const statusText = String(source.batchStatus || source.status || card.batchStatus || card.status || '').toLowerCase();
+  const sterilityText = String(card.sterilityStatus || '').toLowerCase();
+  const statusLabel = describeProblemStatus(statusText, sterilityText);
+  const problem = source.problem || source.problemType || source.risk || source.riskLevel || card.problem || card.problemType || card.risk || card.riskLevel || firstProblemNote(card) || statusLabel || firstRiskNote(card) || 'Требует внимания';
+  const risk = source.risk || source.riskLevel || card.risk || card.riskLevel || firstRiskNote(card);
+
+  return {
+    ...card,
+    code: card.code,
+    stage: source.stage || card.stage || card.batchStatus || card.status,
+    batchStatus: card.batchStatus,
+    status: card.status,
+    createdAt: source.createdAt || card.createdAt || '',
+    date: source.date || card.date || source.createdAt || card.createdAt || '',
+    problem,
+    risk,
+    problemType: source.problemType || card.problemType,
+    riskLevel: source.riskLevel || card.riskLevel,
+    problemSource: event ? 'event' : 'card',
+    problemSourceType: source.type || source.title || '',
+    problemSourceStatus: statusText || sterilityText ? `${statusText}${statusText && sterilityText ? ' ' : ''}${sterilityText}`.trim() : ''
+  };
+}
+
+function problemEntryTimestamp(entry) {
+  return new Date(entry && (entry.createdAt || entry.date || 0)).getTime() || 0;
+}
+
+function describeProblemStatus(statusText, sterilityText) {
+  if (sterilityText.includes('contamin')) {
+    return 'Контаминация';
+  }
+  if (statusText.includes('quarantine')) {
+    return 'Карантин';
+  }
+  if (statusText.includes('problem')) {
+    return 'Требует внимания';
+  }
+  if (statusText.includes('risk')) {
+    return 'Риск';
+  }
+  return '';
+}
+
+function firstProblemNote(card) {
+  const event = (card && Array.isArray(card.events) ? card.events : []).find((item) => item && (item.problem || item.problemType || item.risk || item.riskLevel));
+  if (!event) {
+    return '';
+  }
+
+  return event.problem || event.problemType || event.risk || event.riskLevel || '';
+}
+
+function firstRiskNote(card) {
+  const event = (card && Array.isArray(card.events) ? card.events : []).find((item) => item && (item.risk || item.riskLevel || item.problem || item.problemType));
+  if (!event) {
+    return '';
+  }
+
+  return event.risk || event.riskLevel || event.problem || event.problemType || '';
 }
 
 const STAGE_ORDER = [
