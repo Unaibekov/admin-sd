@@ -1,0 +1,538 @@
+{
+  "reportId": "demo-report-9-2026-06-18-demo-user-009-3",
+  "createdAt": "2026-06-18T09:20:00.000Z",
+  "appVersion": "1.0.0",
+  "deviceId": "demo-device-09",
+  "user": {
+    "userId": "demo-user-009",
+    "firstName": "РџР°РІРµР»",
+    "lastName": "РЎРѕРєРѕР»РѕРІ",
+    "displayName": "РџР°РІРµР» РЎРѕРєРѕР»РѕРІ",
+    "role": "РЎРѕС‚СЂСѓРґРЅРёРє С‚РµРїР»РёС†С‹"
+  },
+  "testLocation": "Теплица 9, Стеллаж I, полка 1",
+  "summary": {
+    "cardsCount": 8,
+    "eventsCount": 18,
+    "photosCount": 3,
+    "problemsCount": 2,
+    "activeCount": 2,
+    "soldCount": 1,
+    "quarantineCount": 1,
+    "problemCount": 1,
+    "partialCount": 1,
+    "archivedCount": 2
+  },
+  "cards": [
+    {
+      "cardId": "demo-report-9-card-01",
+      "code": "IV-0901-260618",
+      "cultureName": "Р”СЂР°С†РµРЅР°",
+      "speciesName": "Dracaena marginata",
+      "varietyName": "Tricolor",
+      "stage": "Р’РІРµРґРµРЅРёРµ РІ РєСѓР»СЊС‚СѓСЂСѓ",
+      "batchStatus": "active",
+      "sterilityStatus": "sterile",
+      "quantity": 360,
+      "currentQuantity": 360,
+      "locationDescription": "Теплица 9, Стеллаж I, полка 1",
+      "createdAt": "2026-05-25T09:20:00.000Z",
+      "updatedAt": "2026-05-26T00:20:00.000Z",
+      "extraFields": {},
+      "events": [
+        {
+          "eventId": "demo-report-9-card-01-event-01",
+          "type": "batchCreated",
+          "title": "РЎРѕР·РґР°РЅРёРµ РїР°СЂС‚РёРё",
+          "stage": "Р’РІРµРґРµРЅРёРµ РІ РєСѓР»СЊС‚СѓСЂСѓ",
+          "date": "2026-05-25T09:20:00.000Z",
+          "createdAt": "2026-05-25T09:20:00.000Z",
+          "createdBy": "demo-user-009",
+          "comment": "",
+          "photoNote": "",
+          "photoFiles": [],
+          "problemType": "",
+          "riskLevel": "",
+          "count": 0,
+          "previousQuantity": 0,
+          "currentQuantity": 360,
+          "extraFields": {
+            "reportIndex": 9
+          }
+        },
+        {
+          "eventId": "demo-report-9-card-01-event-02",
+          "type": "hardeningObservation",
+          "title": "РќР°Р±Р»СЋРґРµРЅРёРµ",
+          "stage": "Р—Р°РєР°Р»РєР°",
+          "date": "2026-05-25T15:20:00.000Z",
+          "createdAt": "2026-05-25T15:20:00.000Z",
+          "createdBy": "demo-user-009",
+          "comment": "РџР°СЂС‚РёСЏ РїРѕРєР°Р·С‹РІР°РµС‚ РіРѕС‚РѕРІРЅРѕСЃС‚СЊ Рє РІС‹СЃР°РґРєРµ.",
+          "photoNote": "",
+          "photoFiles": [],
+          "problemType": "",
+          "riskLevel": "",
+          "count": 0,
+          "previousQuantity": 360,
+          "currentQuantity": 360,
+          "extraFields": {
+            "reportIndex": 9
+          }
+        },
+        {
+          "eventId": "demo-report-9-card-01-event-03",
+          "type": "photo",
+          "title": "Р¤РѕС‚Рѕ",
+          "stage": "Р—Р°РєР°Р»РєР°",
+          "date": "2026-05-25T21:20:00.000Z",
+          "createdAt": "2026-05-25T21:20:00.000Z",
+          "createdBy": "demo-user-009",
+          "comment": "",
+          "photoNote": "РџР°СЂС‚РёСЏ РїРµСЂРµРґ РІС‹СЃР°РґРєРѕР№ РїРѕСЃР»Рµ Р·Р°РєР°Р»РєРё.",
+          "photoFiles": [
+            "photos/demo-report-9-card-01-event-03-1.jpg"
+          ],
+          "problemType": "",
+          "riskLevel": "",
+          "count": 0,
+          "previousQuantity": 360,
+          "currentQuantity": 360,
+          "extraFields": {
+            "reportIndex": 9
+          }
+        }
+      ]
+    },
+    {
+      "cardId": "demo-report-9-card-02",
+      "code": "KL-0902-260618",
+      "cultureName": "РџРµРїРµСЂРѕРјРёСЏ",
+      "speciesName": "Peperomia obtusifolia",
+      "varietyName": "Green Gold",
+      "stage": "РљР»РѕРЅРёСЂРѕРІР°РЅРёРµ",
+      "batchStatus": "partial",
+      "sterilityStatus": "unchecked",
+      "quantity": 369,
+      "currentQuantity": 214,
+      "locationDescription": "Теплица 9, Стеллаж J, полка 2",
+      "createdAt": "2026-05-27T09:20:00.000Z",
+      "updatedAt": "2026-05-27T18:20:00.000Z",
+      "extraFields": {},
+      "events": [
+        {
+          "eventId": "demo-report-9-card-02-event-01",
+          "type": "batchCreated",
+          "title": "РЎРѕР·РґР°РЅРёРµ РїР°СЂС‚РёРё",
+          "stage": "Р’РІРµРґРµРЅРёРµ РІ РєСѓР»СЊС‚СѓСЂСѓ",
+          "date": "2026-05-27T09:20:00.000Z",
+          "createdAt": "2026-05-27T09:20:00.000Z",
+          "createdBy": "demo-user-009",
+          "comment": "",
+          "photoNote": "",
+          "photoFiles": [],
+          "problemType": "",
+          "riskLevel": "",
+          "count": 0,
+          "previousQuantity": 0,
+          "currentQuantity": 369,
+          "extraFields": {
+            "reportIndex": 9
+          }
+        },
+        {
+          "eventId": "demo-report-9-card-02-event-02",
+          "type": "hardeningCare",
+          "title": "РЈС…РѕРґ",
+          "stage": "Р—Р°РєР°Р»РєР°",
+          "date": "2026-05-27T15:20:00.000Z",
+          "createdAt": "2026-05-27T15:20:00.000Z",
+          "createdBy": "demo-user-009",
+          "comment": "РџСЂРѕРІРµРґРµРЅ РїРѕРґРґРµСЂР¶РёРІР°СЋС‰РёР№ СѓС…РѕРґ РЅР° РїР»РѕС‰Р°РґРєРµ Р·Р°РєР°Р»РєРё.",
+          "photoNote": "",
+          "photoFiles": [],
+          "problemType": "",
+          "riskLevel": "",
+          "count": 0,
+          "previousQuantity": 214,
+          "currentQuantity": 214,
+          "extraFields": {
+            "reportIndex": 9
+          }
+        }
+      ]
+    },
+    {
+      "cardId": "demo-report-9-card-03",
+      "code": "AD-0903-260618",
+      "cultureName": "РњРѕРЅСЃС‚РµСЂР°",
+      "speciesName": "Monstera deliciosa",
+      "varietyName": "Borsigiana",
+      "stage": "РђРґР°РїС‚Р°С†РёСЏ",
+      "batchStatus": "sold",
+      "sterilityStatus": "unchecked",
+      "quantity": 378,
+      "currentQuantity": 0,
+      "locationDescription": "Теплица 9, Стеллаж K, полка 3",
+      "createdAt": "2026-05-29T09:20:00.000Z",
+      "updatedAt": "2026-05-30T00:20:00.000Z",
+      "extraFields": {},
+      "events": [
+        {
+          "eventId": "demo-report-9-card-03-event-01",
+          "type": "batchCreated",
+          "title": "РЎРѕР·РґР°РЅРёРµ РїР°СЂС‚РёРё",
+          "stage": "Р’РІРµРґРµРЅРёРµ РІ РєСѓР»СЊС‚СѓСЂСѓ",
+          "date": "2026-05-29T09:20:00.000Z",
+          "createdAt": "2026-05-29T09:20:00.000Z",
+          "createdBy": "demo-user-009",
+          "comment": "",
+          "photoNote": "",
+          "photoFiles": [],
+          "problemType": "",
+          "riskLevel": "",
+          "count": 0,
+          "previousQuantity": 0,
+          "currentQuantity": 378,
+          "extraFields": {
+            "reportIndex": 9
+          }
+        },
+        {
+          "eventId": "demo-report-9-card-03-event-02",
+          "type": "problem",
+          "title": "РџСЂРѕР±Р»РµРјР°",
+          "stage": "Р—Р°РєР°Р»РєР°",
+          "date": "2026-05-29T15:20:00.000Z",
+          "createdAt": "2026-05-29T15:20:00.000Z",
+          "createdBy": "demo-user-009",
+          "comment": "РћР±РЅР°СЂСѓР¶РµРЅС‹ РѕР¶РѕРіРё РЅР° С‡Р°СЃС‚Рё Р»РёСЃС‚СЊРµРІ.",
+          "photoNote": "",
+          "photoFiles": [],
+          "problemType": "РћР¶РѕРіРё",
+          "riskLevel": "РЎСЂРµРґРЅРёР№",
+          "count": 0,
+          "previousQuantity": 0,
+          "currentQuantity": 0,
+          "extraFields": {
+            "reportIndex": 9
+          }
+        },
+        {
+          "eventId": "demo-report-9-card-03-event-03",
+          "type": "photo",
+          "title": "Р¤РѕС‚Рѕ",
+          "stage": "Р—Р°РєР°Р»РєР°",
+          "date": "2026-05-29T21:20:00.000Z",
+          "createdAt": "2026-05-29T21:20:00.000Z",
+          "createdBy": "demo-user-009",
+          "comment": "",
+          "photoNote": "РЎРёРјРїС‚РѕРјС‹ РѕР¶РѕРіРѕРІ РЅР° Р»РёСЃС‚СЊСЏС… РїРѕСЃР»Рµ Р·Р°РєР°Р»РєРё.",
+          "photoFiles": [
+            "photos/demo-report-9-card-03-event-03-1.jpg"
+          ],
+          "problemType": "",
+          "riskLevel": "",
+          "count": 0,
+          "previousQuantity": 0,
+          "currentQuantity": 0,
+          "extraFields": {
+            "reportIndex": 9
+          }
+        }
+      ]
+    },
+    {
+      "cardId": "demo-report-9-card-04",
+      "code": "TP-0904-260618",
+      "cultureName": "РђР»РѕРєР°Р·РёСЏ",
+      "speciesName": "Alocasia cucullata",
+      "varietyName": "Polly",
+      "stage": "РўРµРїР»РёС†Р°",
+      "batchStatus": "archived",
+      "sterilityStatus": "sterile",
+      "quantity": 387,
+      "currentQuantity": 0,
+      "locationDescription": "Теплица 9, Стеллаж L, полка 4",
+      "createdAt": "2026-05-31T09:20:00.000Z",
+      "updatedAt": "2026-05-31T18:20:00.000Z",
+      "extraFields": {},
+      "events": [
+        {
+          "eventId": "demo-report-9-card-04-event-01",
+          "type": "batchCreated",
+          "title": "РЎРѕР·РґР°РЅРёРµ РїР°СЂС‚РёРё",
+          "stage": "Р’РІРµРґРµРЅРёРµ РІ РєСѓР»СЊС‚СѓСЂСѓ",
+          "date": "2026-05-31T09:20:00.000Z",
+          "createdAt": "2026-05-31T09:20:00.000Z",
+          "createdBy": "demo-user-009",
+          "comment": "",
+          "photoNote": "",
+          "photoFiles": [],
+          "problemType": "",
+          "riskLevel": "",
+          "count": 0,
+          "previousQuantity": 0,
+          "currentQuantity": 387,
+          "extraFields": {
+            "reportIndex": 9
+          }
+        },
+        {
+          "eventId": "demo-report-9-card-04-event-02",
+          "type": "problem",
+          "title": "РџСЂРѕР±Р»РµРјР°",
+          "stage": "Р—Р°РєР°Р»РєР°",
+          "date": "2026-05-31T15:20:00.000Z",
+          "createdAt": "2026-05-31T15:20:00.000Z",
+          "createdBy": "demo-user-009",
+          "comment": "РћС‚РјРµС‡РµРЅРѕ СѓРІСЏРґР°РЅРёРµ РІ Р¶Р°СЂРєРёР№ РґРµРЅСЊ.",
+          "photoNote": "",
+          "photoFiles": [],
+          "problemType": "РЈРІСЏРґР°РЅРёРµ",
+          "riskLevel": "Р’С‹СЃРѕРєРёР№",
+          "count": 0,
+          "previousQuantity": 0,
+          "currentQuantity": 0,
+          "extraFields": {
+            "reportIndex": 9
+          }
+        }
+      ]
+    },
+    {
+      "cardId": "demo-report-9-card-05",
+      "code": "ZK-0905-260618",
+      "cultureName": "РђРЅС‚СѓСЂРёСѓРј",
+      "speciesName": "Anthurium andraeanum",
+      "varietyName": "Pink Champion",
+      "stage": "Р—Р°РєР°Р»РєР°",
+      "batchStatus": "active",
+      "sterilityStatus": "unchecked",
+      "quantity": 396,
+      "currentQuantity": 396,
+      "locationDescription": "Теплица 9, Стеллаж M, полка 5",
+      "createdAt": "2026-06-02T09:20:00.000Z",
+      "updatedAt": "2026-06-03T00:20:00.000Z",
+      "extraFields": {},
+      "events": [
+        {
+          "eventId": "demo-report-9-card-05-event-01",
+          "type": "batchCreated",
+          "title": "РЎРѕР·РґР°РЅРёРµ РїР°СЂС‚РёРё",
+          "stage": "Р’РІРµРґРµРЅРёРµ РІ РєСѓР»СЊС‚СѓСЂСѓ",
+          "date": "2026-06-02T09:20:00.000Z",
+          "createdAt": "2026-06-02T09:20:00.000Z",
+          "createdBy": "demo-user-009",
+          "comment": "",
+          "photoNote": "",
+          "photoFiles": [],
+          "problemType": "",
+          "riskLevel": "",
+          "count": 0,
+          "previousQuantity": 0,
+          "currentQuantity": 396,
+          "extraFields": {
+            "reportIndex": 9
+          }
+        },
+        {
+          "eventId": "demo-report-9-card-05-event-02",
+          "type": "movement",
+          "title": "РџРµСЂРµРјРµС‰РµРЅРёРµ",
+          "stage": "Р—Р°РєР°Р»РєР°",
+          "date": "2026-06-02T15:20:00.000Z",
+          "createdAt": "2026-06-02T15:20:00.000Z",
+          "createdBy": "demo-user-009",
+          "comment": "РџР°СЂС‚РёСЏ РїРµСЂРµРјРµС‰РµРЅР° РІ Р·Р°С‚РµРЅРµРЅРЅС‹Р№ СЃРµРєС‚РѕСЂ.",
+          "photoNote": "",
+          "photoFiles": [],
+          "problemType": "",
+          "riskLevel": "",
+          "count": 0,
+          "previousQuantity": 396,
+          "currentQuantity": 396,
+          "extraFields": {
+            "reportIndex": 9
+          }
+        },
+        {
+          "eventId": "demo-report-9-card-05-event-03",
+          "type": "photo",
+          "title": "Р¤РѕС‚Рѕ",
+          "stage": "Р—Р°РєР°Р»РєР°",
+          "date": "2026-06-02T21:20:00.000Z",
+          "createdAt": "2026-06-02T21:20:00.000Z",
+          "createdBy": "demo-user-009",
+          "comment": "",
+          "photoNote": "РљРѕРЅС‚СЂРѕР»СЊРЅС‹Р№ СЃРЅРёРјРѕРє РїР°СЂС‚РёРё РїРµСЂРµРґ РїРµСЂРµРјРµС‰РµРЅРёРµРј.",
+          "photoFiles": [
+            "photos/demo-report-9-card-05-event-03-1.jpg"
+          ],
+          "problemType": "",
+          "riskLevel": "",
+          "count": 0,
+          "previousQuantity": 396,
+          "currentQuantity": 396,
+          "extraFields": {
+            "reportIndex": 9
+          }
+        }
+      ]
+    },
+    {
+      "cardId": "demo-report-9-card-06",
+      "code": "VH-0906-260618",
+      "cultureName": "Р¤РёР»РѕРґРµРЅРґСЂРѕРЅ",
+      "speciesName": "Philodendron hederaceum",
+      "varietyName": "Brasil",
+      "stage": "Р’С‹СЃР°РґРєР°",
+      "batchStatus": "problem",
+      "sterilityStatus": "contaminated",
+      "quantity": 405,
+      "currentQuantity": 393,
+      "locationDescription": "Теплица 9, Стеллаж N, полка 6",
+      "createdAt": "2026-06-04T09:20:00.000Z",
+      "updatedAt": "2026-06-05T00:20:00.000Z",
+      "extraFields": {},
+      "events": [
+        {
+          "eventId": "demo-report-9-card-06-event-01",
+          "type": "batchCreated",
+          "title": "РЎРѕР·РґР°РЅРёРµ РїР°СЂС‚РёРё",
+          "stage": "Р’РІРµРґРµРЅРёРµ РІ РєСѓР»СЊС‚СѓСЂСѓ",
+          "date": "2026-06-04T09:20:00.000Z",
+          "createdAt": "2026-06-04T09:20:00.000Z",
+          "createdBy": "demo-user-009",
+          "comment": "",
+          "photoNote": "",
+          "photoFiles": [],
+          "problemType": "",
+          "riskLevel": "",
+          "count": 0,
+          "previousQuantity": 0,
+          "currentQuantity": 405,
+          "extraFields": {
+            "reportIndex": 9
+          }
+        },
+        {
+          "eventId": "demo-report-9-card-06-event-02",
+          "type": "discard",
+          "title": "Р’С‹Р±СЂР°РєРѕРІРєР°",
+          "stage": "Р—Р°РєР°Р»РєР°",
+          "date": "2026-06-04T15:20:00.000Z",
+          "createdAt": "2026-06-04T15:20:00.000Z",
+          "createdBy": "demo-user-009",
+          "comment": "РќРµРїСЂРёРіРѕРґРЅС‹Рµ СЌРєР·РµРјРїР»СЏСЂС‹ РІС‹Р±СЂР°РєРѕРІР°РЅС‹ РїРѕСЃР»Рµ Р·Р°РєР°Р»РєРё.",
+          "photoNote": "",
+          "photoFiles": [],
+          "problemType": "",
+          "riskLevel": "",
+          "count": 5,
+          "previousQuantity": 201,
+          "currentQuantity": 196,
+          "extraFields": {
+            "reportIndex": 9
+          }
+        },
+        {
+          "eventId": "demo-report-9-card-06-event-03",
+          "type": "sale",
+          "title": "РџСЂРѕРґР°Р¶Р°",
+          "stage": "Р—Р°РєР°Р»РєР°",
+          "date": "2026-06-04T21:20:00.000Z",
+          "createdAt": "2026-06-04T21:20:00.000Z",
+          "createdBy": "demo-user-009",
+          "comment": "Р§Р°СЃС‚СЊ РїРѕРґРіРѕС‚РѕРІР»РµРЅРЅРѕР№ РїР°СЂС‚РёРё СЂРµР°Р»РёР·РѕРІР°РЅР°.",
+          "photoNote": "",
+          "photoFiles": [],
+          "problemType": "",
+          "riskLevel": "",
+          "count": 18,
+          "previousQuantity": 196,
+          "currentQuantity": 178,
+          "extraFields": {
+            "reportIndex": 9
+          }
+        }
+      ]
+    },
+    {
+      "cardId": "demo-report-9-card-07",
+      "code": "ZK-0907-260618",
+      "cultureName": "РЎРёРЅРіРѕРЅРёСѓРј",
+      "speciesName": "Syngonium podophyllum",
+      "varietyName": "White Butterfly",
+      "stage": "Р—Р°РєР°Р»РєР°",
+      "batchStatus": "quarantine",
+      "sterilityStatus": "contaminated",
+      "quantity": 414,
+      "currentQuantity": 414,
+      "locationDescription": "Теплица 9, Стеллаж O, полка 7",
+      "createdAt": "2026-06-06T09:20:00.000Z",
+      "updatedAt": "2026-06-06T12:20:00.000Z",
+      "extraFields": {},
+      "events": [
+        {
+          "eventId": "demo-report-9-card-07-event-01",
+          "type": "batchCreated",
+          "title": "РЎРѕР·РґР°РЅРёРµ РїР°СЂС‚РёРё",
+          "stage": "Р’РІРµРґРµРЅРёРµ РІ РєСѓР»СЊС‚СѓСЂСѓ",
+          "date": "2026-06-06T09:20:00.000Z",
+          "createdAt": "2026-06-06T09:20:00.000Z",
+          "createdBy": "demo-user-009",
+          "comment": "",
+          "photoNote": "",
+          "photoFiles": [],
+          "problemType": "",
+          "riskLevel": "",
+          "count": 0,
+          "previousQuantity": 0,
+          "currentQuantity": 414,
+          "extraFields": {
+            "reportIndex": 9
+          }
+        }
+      ]
+    },
+    {
+      "cardId": "demo-report-9-card-08",
+      "code": "TP-0908-260618",
+      "cultureName": "РЎРїР°С‚РёС„РёР»Р»СѓРј",
+      "speciesName": "Spathiphyllum wallisii",
+      "varietyName": "Sensation",
+      "stage": "РўРµРїР»РёС†Р°",
+      "batchStatus": "archived",
+      "sterilityStatus": "unchecked",
+      "quantity": 423,
+      "currentQuantity": 0,
+      "locationDescription": "Теплица 9, Стеллаж P, полка 8",
+      "createdAt": "2026-06-08T09:20:00.000Z",
+      "updatedAt": "2026-06-08T12:20:00.000Z",
+      "extraFields": {},
+      "events": [
+        {
+          "eventId": "demo-report-9-card-08-event-01",
+          "type": "batchCreated",
+          "title": "РЎРѕР·РґР°РЅРёРµ РїР°СЂС‚РёРё",
+          "stage": "Р’РІРµРґРµРЅРёРµ РІ РєСѓР»СЊС‚СѓСЂСѓ",
+          "date": "2026-06-08T09:20:00.000Z",
+          "createdAt": "2026-06-08T09:20:00.000Z",
+          "createdBy": "demo-user-009",
+          "comment": "",
+          "photoNote": "",
+          "photoFiles": [],
+          "problemType": "",
+          "riskLevel": "",
+          "count": 0,
+          "previousQuantity": 0,
+          "currentQuantity": 423,
+          "extraFields": {
+            "reportIndex": 9
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,558 @@
+{
+  "reportId": "demo-report-10-2026-06-19-demo-user-010-5",
+  "createdAt": "2026-06-19T09:20:00.000Z",
+  "appVersion": "1.0.0",
+  "deviceId": "demo-device-10",
+  "user": {
+    "userId": "demo-user-010",
+    "firstName": "Светлана",
+    "lastName": "Николаева",
+    "displayName": "Светлана Николаева",
+    "role": "Администратор"
+  },
+  "testLocation": "Теплица 10, Стеллаж J, полка 1",
+  "summary": {
+    "cardsCount": 8,
+    "eventsCount": 19,
+    "photosCount": 3,
+    "problemsCount": 2,
+    "activeCount": 2,
+    "soldCount": 1,
+    "quarantineCount": 1,
+    "problemCount": 1,
+    "partialCount": 1,
+    "archivedCount": 2
+  },
+  "cards": [
+    {
+      "cardId": "demo-report-10-card-01",
+      "code": "IV-1001-260619",
+      "cultureName": "Пеперомия",
+      "speciesName": "Peperomia obtusifolia",
+      "varietyName": "Green Gold",
+      "stage": "Введение в культуру",
+      "batchStatus": "active",
+      "sterilityStatus": "sterile",
+      "quantity": 390,
+      "currentQuantity": 390,
+      "locationDescription": "Теплица 10, Стеллаж J, полка 1",
+      "createdAt": "2026-05-26T09:20:00.000Z",
+      "updatedAt": "2026-05-27T00:20:00.000Z",
+      "extraFields": {},
+      "events": [
+        {
+          "eventId": "demo-report-10-card-01-event-01",
+          "type": "batchCreated",
+          "title": "Создание партии",
+          "stage": "Введение в культуру",
+          "date": "2026-05-26T09:20:00.000Z",
+          "createdAt": "2026-05-26T09:20:00.000Z",
+          "createdBy": "demo-user-010",
+          "comment": "",
+          "photoNote": "",
+          "photoFiles": [],
+          "problemType": "",
+          "riskLevel": "",
+          "count": 0,
+          "previousQuantity": 0,
+          "currentQuantity": 390,
+          "extraFields": {
+            "reportIndex": 10
+          }
+        },
+        {
+          "eventId": "demo-report-10-card-01-event-02",
+          "type": "planting",
+          "title": "Высадка",
+          "stage": "Высадка",
+          "date": "2026-05-26T15:20:00.000Z",
+          "createdAt": "2026-05-26T15:20:00.000Z",
+          "createdBy": "demo-user-010",
+          "comment": "Выполнена высадка в постоянный субстрат.",
+          "photoNote": "",
+          "photoFiles": [],
+          "problemType": "",
+          "riskLevel": "",
+          "count": 12,
+          "previousQuantity": 390,
+          "currentQuantity": 390,
+          "extraFields": {
+            "reportIndex": 10
+          }
+        },
+        {
+          "eventId": "demo-report-10-card-01-event-03",
+          "type": "photo",
+          "title": "Фото",
+          "stage": "Высадка",
+          "date": "2026-05-26T21:20:00.000Z",
+          "createdAt": "2026-05-26T21:20:00.000Z",
+          "createdBy": "demo-user-010",
+          "comment": "",
+          "photoNote": "Состояние партии сразу после высадки.",
+          "photoFiles": [
+            "photos/demo-report-10-card-01-event-03-1.jpg"
+          ],
+          "problemType": "",
+          "riskLevel": "",
+          "count": 0,
+          "previousQuantity": 390,
+          "currentQuantity": 390,
+          "extraFields": {
+            "reportIndex": 10
+          }
+        }
+      ]
+    },
+    {
+      "cardId": "demo-report-10-card-02",
+      "code": "KL-1002-260619",
+      "cultureName": "Монстера",
+      "speciesName": "Monstera deliciosa",
+      "varietyName": "Borsigiana",
+      "stage": "Клонирование",
+      "batchStatus": "partial",
+      "sterilityStatus": "unchecked",
+      "quantity": 399,
+      "currentQuantity": 231,
+      "locationDescription": "Теплица 10, Стеллаж K, полка 2",
+      "createdAt": "2026-05-28T09:20:00.000Z",
+      "updatedAt": "2026-05-29T00:20:00.000Z",
+      "extraFields": {},
+      "events": [
+        {
+          "eventId": "demo-report-10-card-02-event-01",
+          "type": "batchCreated",
+          "title": "Создание партии",
+          "stage": "Введение в культуру",
+          "date": "2026-05-28T09:20:00.000Z",
+          "createdAt": "2026-05-28T09:20:00.000Z",
+          "createdBy": "demo-user-010",
+          "comment": "",
+          "photoNote": "",
+          "photoFiles": [],
+          "problemType": "",
+          "riskLevel": "",
+          "count": 0,
+          "previousQuantity": 0,
+          "currentQuantity": 399,
+          "extraFields": {
+            "reportIndex": 10
+          }
+        },
+        {
+          "eventId": "demo-report-10-card-02-event-02",
+          "type": "plantingObservation",
+          "title": "Наблюдение",
+          "stage": "Высадка",
+          "date": "2026-05-28T15:20:00.000Z",
+          "createdAt": "2026-05-28T15:20:00.000Z",
+          "createdBy": "demo-user-010",
+          "comment": "Отмечена хорошая приживаемость после высадки.",
+          "photoNote": "",
+          "photoFiles": [],
+          "problemType": "",
+          "riskLevel": "",
+          "count": 0,
+          "previousQuantity": 231,
+          "currentQuantity": 231,
+          "extraFields": {
+            "reportIndex": 10
+          }
+        },
+        {
+          "eventId": "demo-report-10-card-02-event-03",
+          "type": "plantingCare",
+          "title": "Уход",
+          "stage": "Высадка",
+          "date": "2026-05-28T21:20:00.000Z",
+          "createdAt": "2026-05-28T21:20:00.000Z",
+          "createdBy": "demo-user-010",
+          "comment": "Проведен полив после высадки.",
+          "photoNote": "",
+          "photoFiles": [],
+          "problemType": "",
+          "riskLevel": "",
+          "count": 0,
+          "previousQuantity": 231,
+          "currentQuantity": 231,
+          "extraFields": {
+            "reportIndex": 10
+          }
+        }
+      ]
+    },
+    {
+      "cardId": "demo-report-10-card-03",
+      "code": "AD-1003-260619",
+      "cultureName": "Алоказия",
+      "speciesName": "Alocasia cucullata",
+      "varietyName": "Polly",
+      "stage": "Адаптация",
+      "batchStatus": "sold",
+      "sterilityStatus": "unchecked",
+      "quantity": 408,
+      "currentQuantity": 0,
+      "locationDescription": "Теплица 10, Стеллаж L, полка 3",
+      "createdAt": "2026-05-30T09:20:00.000Z",
+      "updatedAt": "2026-05-30T12:20:00.000Z",
+      "extraFields": {},
+      "events": [
+        {
+          "eventId": "demo-report-10-card-03-event-01",
+          "type": "batchCreated",
+          "title": "Создание партии",
+          "stage": "Введение в культуру",
+          "date": "2026-05-30T09:20:00.000Z",
+          "createdAt": "2026-05-30T09:20:00.000Z",
+          "createdBy": "demo-user-010",
+          "comment": "",
+          "photoNote": "",
+          "photoFiles": [],
+          "problemType": "",
+          "riskLevel": "",
+          "count": 0,
+          "previousQuantity": 0,
+          "currentQuantity": 408,
+          "extraFields": {
+            "reportIndex": 10
+          }
+        }
+      ]
+    },
+    {
+      "cardId": "demo-report-10-card-04",
+      "code": "TP-1004-260619",
+      "cultureName": "Антуриум",
+      "speciesName": "Anthurium andraeanum",
+      "varietyName": "Pink Champion",
+      "stage": "Теплица",
+      "batchStatus": "archived",
+      "sterilityStatus": "sterile",
+      "quantity": 417,
+      "currentQuantity": 0,
+      "locationDescription": "Теплица 10, Стеллаж M, полка 4",
+      "createdAt": "2026-06-01T09:20:00.000Z",
+      "updatedAt": "2026-06-01T18:20:00.000Z",
+      "extraFields": {},
+      "events": [
+        {
+          "eventId": "demo-report-10-card-04-event-01",
+          "type": "batchCreated",
+          "title": "Создание партии",
+          "stage": "Введение в культуру",
+          "date": "2026-06-01T09:20:00.000Z",
+          "createdAt": "2026-06-01T09:20:00.000Z",
+          "createdBy": "demo-user-010",
+          "comment": "",
+          "photoNote": "",
+          "photoFiles": [],
+          "problemType": "",
+          "riskLevel": "",
+          "count": 0,
+          "previousQuantity": 0,
+          "currentQuantity": 417,
+          "extraFields": {
+            "reportIndex": 10
+          }
+        },
+        {
+          "eventId": "demo-report-10-card-04-event-02",
+          "type": "photo",
+          "title": "Фото",
+          "stage": "Высадка",
+          "date": "2026-06-01T15:20:00.000Z",
+          "createdAt": "2026-06-01T15:20:00.000Z",
+          "createdBy": "demo-user-010",
+          "comment": "",
+          "photoNote": "Снимок высадки на контрольном участке.",
+          "photoFiles": [
+            "photos/demo-report-10-card-04-event-02-1.jpg"
+          ],
+          "problemType": "",
+          "riskLevel": "",
+          "count": 0,
+          "previousQuantity": 0,
+          "currentQuantity": 0,
+          "extraFields": {
+            "reportIndex": 10
+          }
+        }
+      ]
+    },
+    {
+      "cardId": "demo-report-10-card-05",
+      "code": "ZK-1005-260619",
+      "cultureName": "Филодендрон",
+      "speciesName": "Philodendron hederaceum",
+      "varietyName": "Brasil",
+      "stage": "Закалка",
+      "batchStatus": "problem",
+      "sterilityStatus": "contaminated",
+      "quantity": 426,
+      "currentQuantity": 415,
+      "locationDescription": "Теплица 10, Стеллаж N, полка 5",
+      "createdAt": "2026-06-03T09:20:00.000Z",
+      "updatedAt": "2026-06-03T18:20:00.000Z",
+      "extraFields": {},
+      "events": [
+        {
+          "eventId": "demo-report-10-card-05-event-01",
+          "type": "batchCreated",
+          "title": "Создание партии",
+          "stage": "Введение в культуру",
+          "date": "2026-06-03T09:20:00.000Z",
+          "createdAt": "2026-06-03T09:20:00.000Z",
+          "createdBy": "demo-user-010",
+          "comment": "",
+          "photoNote": "",
+          "photoFiles": [],
+          "problemType": "",
+          "riskLevel": "",
+          "count": 0,
+          "previousQuantity": 0,
+          "currentQuantity": 426,
+          "extraFields": {
+            "reportIndex": 10
+          }
+        },
+        {
+          "eventId": "demo-report-10-card-05-event-02",
+          "type": "problem",
+          "title": "Проблема",
+          "stage": "Высадка",
+          "date": "2026-06-03T15:20:00.000Z",
+          "createdAt": "2026-06-03T15:20:00.000Z",
+          "createdBy": "demo-user-010",
+          "comment": "Растения испытывают погодный стресс.",
+          "photoNote": "",
+          "photoFiles": [],
+          "problemType": "Погодный стресс",
+          "riskLevel": "Высокий",
+          "count": 0,
+          "previousQuantity": 415,
+          "currentQuantity": 415,
+          "extraFields": {
+            "reportIndex": 10
+          }
+        }
+      ]
+    },
+    {
+      "cardId": "demo-report-10-card-06",
+      "code": "VH-1006-260619",
+      "cultureName": "Сингониум",
+      "speciesName": "Syngonium podophyllum",
+      "varietyName": "White Butterfly",
+      "stage": "Высадка",
+      "batchStatus": "quarantine",
+      "sterilityStatus": "contaminated",
+      "quantity": 435,
+      "currentQuantity": 435,
+      "locationDescription": "Теплица 10, Стеллаж O, полка 6",
+      "createdAt": "2026-06-05T09:20:00.000Z",
+      "updatedAt": "2026-06-06T00:20:00.000Z",
+      "extraFields": {},
+      "events": [
+        {
+          "eventId": "demo-report-10-card-06-event-01",
+          "type": "batchCreated",
+          "title": "Создание партии",
+          "stage": "Введение в культуру",
+          "date": "2026-06-05T09:20:00.000Z",
+          "createdAt": "2026-06-05T09:20:00.000Z",
+          "createdBy": "demo-user-010",
+          "comment": "",
+          "photoNote": "",
+          "photoFiles": [],
+          "problemType": "",
+          "riskLevel": "",
+          "count": 0,
+          "previousQuantity": 0,
+          "currentQuantity": 435,
+          "extraFields": {
+            "reportIndex": 10
+          }
+        },
+        {
+          "eventId": "demo-report-10-card-06-event-02",
+          "type": "introLoss",
+          "title": "Потери",
+          "stage": "Высадка",
+          "date": "2026-06-05T15:20:00.000Z",
+          "createdAt": "2026-06-05T15:20:00.000Z",
+          "createdBy": "demo-user-010",
+          "comment": "Часть партии потеряна после пересадки.",
+          "photoNote": "",
+          "photoFiles": [],
+          "problemType": "",
+          "riskLevel": "",
+          "count": 2,
+          "previousQuantity": 210,
+          "currentQuantity": 208,
+          "extraFields": {
+            "reportIndex": 10
+          }
+        },
+        {
+          "eventId": "demo-report-10-card-06-event-03",
+          "type": "sale",
+          "title": "Продажа",
+          "stage": "Высадка",
+          "date": "2026-06-05T21:20:00.000Z",
+          "createdAt": "2026-06-05T21:20:00.000Z",
+          "createdBy": "demo-user-010",
+          "comment": "Часть высаженной партии реализована.",
+          "photoNote": "",
+          "photoFiles": [],
+          "problemType": "",
+          "riskLevel": "",
+          "count": 16,
+          "previousQuantity": 208,
+          "currentQuantity": 192,
+          "extraFields": {
+            "reportIndex": 10
+          }
+        }
+      ]
+    },
+    {
+      "cardId": "demo-report-10-card-07",
+      "code": "VH-1007-260619",
+      "cultureName": "Спатифиллум",
+      "speciesName": "Spathiphyllum wallisii",
+      "varietyName": "Sensation",
+      "stage": "Высадка",
+      "batchStatus": "active",
+      "sterilityStatus": "sterile",
+      "quantity": 444,
+      "currentQuantity": 444,
+      "locationDescription": "Теплица 10, Стеллаж P, полка 7",
+      "createdAt": "2026-06-07T09:20:00.000Z",
+      "updatedAt": "2026-06-07T18:20:00.000Z",
+      "extraFields": {},
+      "events": [
+        {
+          "eventId": "demo-report-10-card-07-event-01",
+          "type": "batchCreated",
+          "title": "Создание партии",
+          "stage": "Введение в культуру",
+          "date": "2026-06-07T09:20:00.000Z",
+          "createdAt": "2026-06-07T09:20:00.000Z",
+          "createdBy": "demo-user-010",
+          "comment": "",
+          "photoNote": "",
+          "photoFiles": [],
+          "problemType": "",
+          "riskLevel": "",
+          "count": 0,
+          "previousQuantity": 0,
+          "currentQuantity": 444,
+          "extraFields": {
+            "reportIndex": 10
+          }
+        },
+        {
+          "eventId": "demo-report-10-card-07-event-02",
+          "type": "plantingCompletion",
+          "title": "Завершение",
+          "stage": "Высадка",
+          "date": "2026-06-07T15:20:00.000Z",
+          "createdAt": "2026-06-07T15:20:00.000Z",
+          "createdBy": "demo-user-010",
+          "comment": "Высадка завершена без дополнительных замечаний.",
+          "photoNote": "",
+          "photoFiles": [],
+          "problemType": "",
+          "riskLevel": "",
+          "count": 0,
+          "previousQuantity": 444,
+          "currentQuantity": 444,
+          "extraFields": {
+            "reportIndex": 10
+          }
+        }
+      ]
+    },
+    {
+      "cardId": "demo-report-10-card-08",
+      "code": "ZK-1008-260619",
+      "cultureName": "Калатея",
+      "speciesName": "Calathea lancifolia",
+      "varietyName": "Rattlesnake",
+      "stage": "Закалка",
+      "batchStatus": "archived",
+      "sterilityStatus": "unchecked",
+      "quantity": 453,
+      "currentQuantity": 0,
+      "locationDescription": "Теплица 10, Стеллаж Q, полка 8",
+      "createdAt": "2026-06-09T09:20:00.000Z",
+      "updatedAt": "2026-06-10T00:20:00.000Z",
+      "extraFields": {},
+      "events": [
+        {
+          "eventId": "demo-report-10-card-08-event-01",
+          "type": "batchCreated",
+          "title": "Создание партии",
+          "stage": "Введение в культуру",
+          "date": "2026-06-09T09:20:00.000Z",
+          "createdAt": "2026-06-09T09:20:00.000Z",
+          "createdBy": "demo-user-010",
+          "comment": "",
+          "photoNote": "",
+          "photoFiles": [],
+          "problemType": "",
+          "riskLevel": "",
+          "count": 0,
+          "previousQuantity": 0,
+          "currentQuantity": 453,
+          "extraFields": {
+            "reportIndex": 10
+          }
+        },
+        {
+          "eventId": "demo-report-10-card-08-event-02",
+          "type": "quarantine",
+          "title": "Карантин",
+          "stage": "Теплица",
+          "date": "2026-06-09T15:20:00.000Z",
+          "createdAt": "2026-06-09T15:20:00.000Z",
+          "createdBy": "demo-user-010",
+          "comment": "Отдельная партия из смешанного журнала переведена в карантин.",
+          "photoNote": "",
+          "photoFiles": [],
+          "problemType": "Карантин",
+          "riskLevel": "Критический",
+          "count": 0,
+          "previousQuantity": 0,
+          "currentQuantity": 0,
+          "extraFields": {
+            "reportIndex": 10
+          }
+        },
+        {
+          "eventId": "demo-report-10-card-08-event-03",
+          "type": "photo",
+          "title": "Фото",
+          "stage": "Теплица",
+          "date": "2026-06-09T21:20:00.000Z",
+          "createdAt": "2026-06-09T21:20:00.000Z",
+          "createdBy": "demo-user-010",
+          "comment": "",
+          "photoNote": "Смешанный контрольный снимок партии из разных стадий.",
+          "photoFiles": [
+            "photos/demo-report-10-card-08-event-03-1.jpg"
+          ],
+          "problemType": "",
+          "riskLevel": "",
+          "count": 0,
+          "previousQuantity": 0,
+          "currentQuantity": 0,
+          "extraFields": {
+            "reportIndex": 10
+          }
+        }
+      ]
+    }
+  ]
+}

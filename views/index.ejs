@@ -111,7 +111,7 @@
               <article class="dashboard-card dashboard-reports-card">
                 <div class="dashboard-card-head">
                   <div>
-                    <h2>Последние отчеты</h2>
+                    <h2>Отчеты</h2>
                   </div>
                   <a href="/reports" class="button button-secondary">Показать все</a>
                 </div>
@@ -211,101 +211,31 @@
                   <h2>События</h2>
                 </div>
                 <% if (currentReport) { %>
-                  <a class="dashboard-card-hint dashboard-card-link" href="<%= dashboardUrl({ stage: 'all', subtab: 'all', entryId: '' }) %>">Показать все</a>
+                  <a class="dashboard-card-hint dashboard-card-link" href="/journal">Показать все</a>
                 <% } %>
               </div>
 
-              <% if (currentReport && currentReport.journal) { %>
-                <% const journal = currentReport.journal; %>
-                <div class="dashboard-journal-report">
-                  <strong><%= journal.reportTitle || currentReport.reportId %></strong>
-                  <span><%= journal.totalEntries %> событий</span>
-                </div>
-
-                <div class="dashboard-journal-tabs" role="tablist" aria-label="Фильтр по стадиям">
-                  <% journal.stageTabs.forEach((tab) => { %>
-                    <a
-                      class="dashboard-journal-tab <%= tab.active ? 'active' : '' %>"
-                      href="<%= dashboardUrl({ stage: tab.key, subtab: 'all', entryId: '' }) %>"
-                      aria-current="<%= tab.active ? 'true' : 'false' %>"
-                    >
-                      <span><%= tab.label %></span>
-                      <strong><%= tab.count %></strong>
-                    </a>
-                  <% }) %>
-                </div>
-
-                <div class="dashboard-journal-subtabs" role="tablist" aria-label="Подтипы событий">
-                  <% journal.subtabTabs.forEach((tab) => { %>
-                    <a
-                      class="dashboard-journal-subtab <%= tab.active ? 'active' : '' %>"
-                      href="<%= dashboardUrl({ stage: journal.selectedStage, subtab: tab.key, entryId: '' }) %>"
-                      aria-current="<%= tab.active ? 'true' : 'false' %>"
-                    >
-                      <span><%= tab.label %></span>
-                      <strong><%= tab.count %></strong>
-                    </a>
-                  <% }) %>
-                </div>
-
-                <% if (journal.entries.length) { %>
-                  <div class="dashboard-journal-feed">
-                    <% journal.entries.forEach((entry) => { %>
-                      <a class="dashboard-journal-entry <%= entry.isProblem ? 'dashboard-journal-entry-problem' : '' %> <%= entry.entryId === journal.selectedEntryId ? 'active' : '' %>" href="<%= dashboardUrl({ stage: journal.selectedStage, subtab: journal.selectedSubtab, entryId: entry.entryId }) %>">
-                        <div class="dashboard-journal-entry-top">
-                          <strong><%= entry.type %></strong>
-                          <span><%= entry.date || '—' %></span>
-                        </div>
-                        <div class="dashboard-journal-entry-card">
-                          <span><%= entry.cardCode %></span>
-                          <p><%= entry.cardCulture || 'Без культуры' %></p>
-                        </div>
-                        <div class="dashboard-journal-entry-meta">
-                          <span>Стадия: <%= entry.stage || '—' %></span>
-                          <span>Кол-во: <%= entry.quantity !== '' && entry.quantity !== null && entry.quantity !== undefined ? entry.quantity : '—' %></span>
-                          <% if (entry.hasDelta) { %>
-                            <span>Остаток: <%= entry.delta > 0 ? '+' + entry.delta : entry.delta %></span>
-                          <% } %>
-                          <span>Автор: <%= entry.createdBy || 'Неизвестно' %></span>
-                          <% if (entry.hasPhotos) { %>
-                            <span>Фото: <%= entry.photoCount %></span>
-                          <% } %>
-                        </div>
-                        <% if (entry.comment) { %>
-                          <p class="dashboard-journal-entry-comment"><%= entry.comment %></p>
-                        <% } %>
-                      </a>
-                    <% }) %>
-                  </div>
-                <% } else { %>
-                  <div class="empty-state dashboard-empty-state dashboard-empty-state-compact">
-                    <h3>Событий нет</h3>
-                    <p>Для выбранного фильтра журнал пуст.</p>
-                  </div>
-                <% } %>
-
-                <% if (journal.selectedEntry) { %>
-                  <article class="dashboard-journal-detail">
-                    <div class="dashboard-journal-detail-head">
-                      <strong><%= journal.selectedEntry.type %></strong>
-                      <span><%= journal.selectedEntry.date || '—' %></span>
-                    </div>
-                    <div class="dashboard-journal-detail-grid">
-                      <div><span>Стадия</span><strong><%= journal.selectedEntry.stage || '—' %></strong></div>
-                      <div><span>Тип</span><strong><%= journal.selectedEntry.subtype || 'all' %></strong></div>
-                      <div><span>Количество</span><strong><%= journal.selectedEntry.quantity !== '' && journal.selectedEntry.quantity !== null && journal.selectedEntry.quantity !== undefined ? journal.selectedEntry.quantity : '—' %></strong></div>
-                      <div><span>Автор</span><strong><%= journal.selectedEntry.createdBy || 'Неизвестно' %></strong></div>
-                    </div>
-                    <% if (journal.selectedEntry.comment) { %>
-                      <p class="dashboard-journal-detail-text"><%= journal.selectedEntry.comment %></p>
-                    <% } %>
-                    <% if (journal.selectedEntry.hasPhotos) { %>
-                      <div class="dashboard-journal-detail-photos">
-                        <span>Фото: <%= journal.selectedEntry.photoCount %></span>
+              <% if (dashboard && Array.isArray(dashboard.globalJournalCards) && dashboard.globalJournalCards.length) { %>
+                <% const cards = dashboard.globalJournalCards.slice(0, 5); %>
+                <% const formatEventCount = (count) => {
+                  if (count === 1) return '1 событие';
+                  if (count >= 2 && count <= 4) return `${count} события`;
+                  return `${count} событий`;
+                }; %>
+                <div class="dashboard-journal-feed">
+                  <% cards.forEach((entry) => { %>
+                    <article class="dashboard-journal-entry <%= entry.isProblem ? 'dashboard-journal-entry-problem' : '' %>">
+                      <div class="dashboard-journal-entry-top">
+                        <strong><%= entry.title %></strong>
+                        <span><%= formatEventCount(entry.eventCount) %></span>
                       </div>
-                    <% } %>
-                  </article>
-                <% } %>
+                      <div class="dashboard-journal-entry-card">
+                        <span><%= entry.stage || 'Без стадии' %></span>
+                        <p><%= formatEventCount(entry.eventCount) %> · последнее: <%= entry.lastEventTitle %> · <%= entry.lastEventDate %></p>
+                      </div>
+                    </article>
+                  <% }) %>
+                </div>
               <% } else { %>
                 <div class="empty-state dashboard-empty-state">
                   <h3>Событий пока нет</h3>

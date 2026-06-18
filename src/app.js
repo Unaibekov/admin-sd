@@ -2,6 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const { buildJournalModel } = require('./journalModel');
+const { buildJournalPageModel } = require('./journalPageModel');
 const {
   listReports,
   clearAllReports,
@@ -72,6 +73,24 @@ function createApp() {
           hasPrevious: currentPage > 1,
           hasNext: currentPage < totalPages
         }
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get('/journal', async (req, res, next) => {
+    try {
+      const reports = await listReports();
+      const detailedReports = await Promise.all(reports.map((report) => getReport(report.reportId)));
+      const loadedReports = detailedReports.filter(Boolean);
+      const journal = buildJournalPageModel(loadedReports, req.query);
+
+      res.render('journal', {
+        pageTitle: 'Журнал',
+        activePage: 'journal',
+        showDashboardLink: loadedReports.length > 0,
+        journal
       });
     } catch (error) {
       next(error);
@@ -286,6 +305,36 @@ function buildDashboard(reports, selectedReport = null, reportModels = [], query
   ];
 
   const chartSourceReports = reportModels.length ? reportModels : selectedReport ? [selectedReport] : [];
+  const journalSourceReports = reportModels.length ? reportModels : selectedReport ? [selectedReport] : [];
+  const globalEvents = journalSourceReports
+    .flatMap((report) => (report.cards || []).flatMap((card) => (card.events || []).map((event) => ({
+      ...event,
+      cardCode: card.code,
+      cardCulture: [card.cultureName, card.speciesName, card.varietyName].filter(Boolean).join(' · '),
+      type: formatDashboardEventTitle(event)
+    }))))
+    .sort((left, right) => new Date(right.createdAt || right.date || 0).getTime() - new Date(left.createdAt || left.date || 0).getTime())
+    .slice(0, 5);
+  const globalJournalCards = journalSourceReports
+    .flatMap((report) => (report.cards || []).map((card) => {
+      const cardEvents = Array.isArray(card.events) ? [...card.events] : [];
+      const latestEvent = cardEvents
+        .sort((left, right) => eventTimestamp(right) - eventTimestamp(left))[0] || null;
+
+      return {
+        ...card,
+        reportId: report.reportId,
+        title: formatDashboardCardTitle(card),
+        eventCount: cardEvents.length,
+        lastEventTitle: formatDashboardEventTitle(latestEvent),
+        lastEventDate: formatDashboardDate(latestEvent && (latestEvent.createdAt || latestEvent.date || latestEvent.time || latestEvent.timestamp)),
+        sortAt: eventTimestamp(latestEvent || card)
+      };
+    }))
+    .sort((left, right) => right.sortAt - left.sortAt)
+    .slice(0, 5);
+  dashboard.globalEvents = globalEvents;
+  dashboard.globalJournalCards = globalJournalCards;
 
   if (selectedReport) {
     const problemCards = collectProblemEntriesFromReports(reportModels.length ? reportModels : [selectedReport])
@@ -296,7 +345,8 @@ function buildDashboard(reports, selectedReport = null, reportModels = [], query
       .flatMap((card) => card.events.map((event) => ({
         ...event,
         cardCode: card.code,
-        cardCulture: [card.cultureName, card.speciesName, card.varietyName].filter(Boolean).join(' · ')
+        cardCulture: [card.cultureName, card.speciesName, card.varietyName].filter(Boolean).join(' · '),
+        type: formatDashboardEventTitle(event)
       })))
       .sort((left, right) => new Date(right.createdAt || right.date || 0).getTime() - new Date(left.createdAt || left.date || 0).getTime())
       .slice(0, 5);
@@ -308,7 +358,7 @@ function buildDashboard(reports, selectedReport = null, reportModels = [], query
       }
       for (const event of card.events) {
         for (const photo of event.photos) {
-          photoItems.push({ photo, label: `${card.code} · ${event.title || event.type}`, kind: 'event' });
+          photoItems.push({ photo, label: `${card.code} · ${formatDashboardEventTitle(event)}`, kind: 'event' });
         }
       }
     }
@@ -325,6 +375,8 @@ function buildDashboard(reports, selectedReport = null, reportModels = [], query
       cardsCount: cards.length,
       problemCards,
       latestEvents,
+      globalEvents,
+      globalJournalCards,
       photoItems: photoItems.slice(0, 12),
       getPhotoUrl: selectedReport.getPhotoUrl.bind(selectedReport),
       journal
@@ -375,6 +427,75 @@ function normalizeBatchStatusLabel(status) {
   if (value.includes('sold')) return 'Sold';
   if (value.includes('archiv')) return 'Archived';
   return status;
+}
+
+function formatDashboardEventTitle(event) {
+  const rawType = String(event && (event.title || event.type || event.eventType || event.name) || '').trim();
+  if (!rawType) {
+    return 'Событие';
+  }
+
+  const normalized = rawType.toLowerCase();
+  const labels = {
+    photo: 'Фото',
+    photos: 'Фото',
+    quarantine: 'Карантин',
+    quarantinereleased: 'Снятие с карантина',
+    batchcreated: 'Создание партии',
+    stagechange: 'Изменение стадии',
+    comment: 'Комментарий',
+    movement: 'Перемещение',
+    transfer: 'Перемещение',
+    sale: 'Продажа',
+    sold: 'Продажа',
+    loss: 'Потери',
+    writeoff: 'Списание',
+    death: 'Гибель',
+    discard: 'Списание',
+    propagation: 'Размножение',
+    rooting: 'Укоренение',
+    transplant: 'Пересадка',
+    planting: 'Высадка',
+    completion: 'Завершение',
+    observation: 'Наблюдение',
+    care: 'Уход',
+    problem: 'Проблема',
+    contamination: 'Контаминация',
+    risk: 'Риск'
+  };
+
+  const compact = normalized.replace(/[^a-zа-яё]/g, '');
+  return labels[compact] || rawType;
+}
+
+function formatDashboardCardTitle(card) {
+  const title = [card && card.cultureName, card && card.speciesName, card && card.varietyName]
+    .filter(Boolean)
+    .join(' · ');
+  return title || (card && card.code) || 'Карточка';
+}
+
+function formatDashboardDate(value) {
+  const date = new Date(value || 0);
+  if (Number.isNaN(date.getTime())) {
+    return '—';
+  }
+
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric'
+  }).format(date);
+}
+
+function eventTimestamp(event) {
+  if (!event) {
+    return 0;
+  }
+
+  const value = event.createdAt || event.date || event.time || event.timestamp || 0;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : 0;
 }
 
 function buildChartTabFromCards(cards, meta, getKey, palette) {
