@@ -1,0 +1,256 @@
+<%- include('partials/head', { pageTitle }) %>
+<%
+  const cards = Array.isArray(journal.cards) ? journal.cards : [];
+  const stageTabs = Array.isArray(journal.stageTabs) ? journal.stageTabs : [];
+  const subtabTabs = Array.isArray(journal.subtabTabs) ? journal.subtabTabs : [];
+  const selectedCardId = journal.selectedCardId || '';
+  const selectedCard = journal.selectedCard || null;
+
+  const formatDaysInStage = (value) => {
+    if (!value) {
+      return '—';
+    }
+
+    const start = new Date(value);
+    if (Number.isNaN(start.getTime())) {
+      return '—';
+    }
+
+    const now = new Date();
+    const startUtc = Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate());
+    const nowUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+    const days = Math.max(0, Math.floor((nowUtc - startUtc) / 86400000));
+    const lastTwoDigits = days % 100;
+    const lastDigit = days % 10;
+
+    if (lastTwoDigits >= 11 && lastTwoDigits <= 14) {
+      return `${days} дней в стадии`;
+    }
+
+    if (lastDigit === 1) {
+      return `${days} день в стадии`;
+    }
+
+    if (lastDigit >= 2 && lastDigit <= 4) {
+      return `${days} дня в стадии`;
+    }
+
+    return `${days} дней в стадии`;
+  };
+
+  const buildEventItems = (event) => (Array.isArray(event.summaryItems) ? event.summaryItems : []);
+%>
+<div class="app-shell">
+  <%- include('partials/sidebar', { activePage: 'journal', showDashboardLink: journal.hasCards }) %>
+
+  <main class="app-main app-main-journal">
+    <section class="journal-page" data-journal-page>
+      <header class="journal-hero">
+        <div class="journal-hero-copy">
+          <h1>Журнал</h1>
+          <p><%= journal.visibleCardsCount %> из <%= journal.totalCards %> карточек</p>
+        </div>
+      </header>
+
+      <section class="journal-layout">
+        <aside class="journal-sidebar-column">
+          <section class="journal-panel journal-controls-panel">
+            <div class="journal-search-row">
+              <div class="journal-filter-group">
+                <span class="journal-filter-label">Поиск</span>
+                <label class="journal-search">
+                  <input
+                    type="search"
+                    value="<%= journal.search %>"
+                    placeholder="По коду, культуре или сорту"
+                    data-journal-search
+                  />
+                </label>
+              </div>
+
+              <div class="journal-stage-filter" data-journal-stage-filter>
+                <button
+                  type="button"
+                  class="journal-stage-filter-toggle"
+                  data-journal-stage-filter-toggle
+                  aria-expanded="false"
+                >
+                  Фильтр
+                </button>
+
+                <div class="journal-stage-filter-menu" data-journal-stage-filter-menu hidden>
+                  <span class="journal-filter-label">Стадии</span>
+                  <div class="journal-pill-row journal-pill-row-vertical">
+                    <% stageTabs.forEach((filter) => { %>
+                      <button
+                        type="button"
+                        class="journal-pill <%= filter.active ? 'active' : '' %>"
+                        data-journal-stage="<%= filter.key %>"
+                      >
+                        <span class="journal-pill-label"><%= filter.label %></span>
+                        <span class="journal-pill-count"><%= filter.count %></span>
+                      </button>
+                    <% }) %>
+                  </div>
+
+                  <span class="journal-filter-label">Типы событий</span>
+                  <div class="journal-pill-row journal-pill-row-vertical">
+                    <% subtabTabs.forEach((filter) => { %>
+                      <button
+                        type="button"
+                        class="journal-pill <%= filter.active ? 'active' : '' %>"
+                        data-journal-tab="<%= filter.key %>"
+                      >
+                        <span class="journal-pill-label"><%= filter.label %></span>
+                        <span class="journal-pill-count"><%= filter.count %></span>
+                      </button>
+                    <% }) %>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="journal-panel journal-cards-panel">
+            <div class="journal-cards-head">
+              <div>
+                <h2>Партии с активностью</h2>
+                <p>Показываются только партии, где есть подходящие события.</p>
+              </div>
+            </div>
+
+            <div class="journal-cards-list">
+              <% if (cards.length) { %>
+                <% cards.forEach((card) => { %>
+                  <article
+                    class="journal-card <%= card.id === selectedCardId ? 'active' : '' %>"
+                    data-journal-card
+                    data-journal-card-id="<%= card.id %>"
+                    data-journal-card-stage="<%= card.stage %>"
+                    data-journal-card-important="<%= card.isImportant ? '1' : '0' %>"
+                    data-journal-card-search="<%= card.searchText %>"
+                    data-journal-card-subtypes="<%= (card.subtypes || []).join(' ') %>"
+                    <%= card.isVisible ? '' : 'hidden' %>
+                  >
+                    <button type="button" class="journal-card-button" data-journal-select-card="<%= card.id %>">
+                      <div class="journal-card-top">
+                        <div class="journal-card-heading">
+                          <h3><%= card.title %></h3>
+                        </div>
+                      </div>
+
+                      <div class="journal-card-stage-row">
+                        <span class="journal-card-stage"><%= card.stage %></span>
+                      </div>
+
+                      <div class="journal-card-meta-row">
+                        <div class="journal-card-meta-item">
+                          <span>Дата последней правки</span>
+                          <strong><%= card.lastEventDate %></strong>
+                        </div>
+                        <div class="journal-card-meta-item">
+                          <span>Остаток</span>
+                          <strong><%= card.currentQuantity || card.quantity || '—' %></strong>
+                        </div>
+                        <div class="journal-card-meta-item">
+                          <span>Дней в стадии</span>
+                          <strong><%= formatDaysInStage(card.stageChangedAt || card.updatedAt || card.createdAt || (card.lastEvent && (card.lastEvent.date || card.lastEvent.createdAt))) %></strong>
+                        </div>
+                      </div>
+                    </button>
+                  </article>
+                <% }) %>
+                <div class="empty-state journal-empty-state" hidden data-journal-empty-results>
+                  <h3>Ничего не найдено</h3>
+                  <p>Попробуйте изменить поиск или стадию.</p>
+                </div>
+              <% } else { %>
+                <div class="empty-state journal-empty-state" data-journal-empty-cards>
+                  <h3>Партии не найдены</h3>
+                  <p>Загрузите отчеты, чтобы журнал появился на этой странице.</p>
+                </div>
+              <% } %>
+            </div>
+          </section>
+        </aside>
+
+        <section class="journal-panel journal-detail-panel">
+          <div class="journal-detail-placeholder" data-journal-placeholder <%= !journal.hasVisibleCards || selectedCard ? 'hidden' : '' %>>
+            <h2>Выберите партию слева</h2>
+            <p>Здесь появится журнал событий выбранной партии.</p>
+          </div>
+
+          <% cards.forEach((card) => { %>
+            <article
+              class="journal-detail-card <%= card.id === selectedCardId ? 'active' : '' %>"
+              data-journal-panel
+              data-journal-panel-id="<%= card.id %>"
+              style="display: <%= card.id === selectedCardId ? 'grid' : 'none' %>;"
+              <%= card.id === selectedCardId ? '' : 'hidden' %>
+            >
+              <div class="journal-detail-head">
+                <div class="journal-detail-title-copy">
+                  <h2><%= card.title %></h2>
+                  <p><%= card.stage %></p>
+                </div>
+              </div>
+
+              <div class="journal-detail-events">
+                <% const visibleEvents = Array.isArray(card.events) ? card.events.filter((event) => journal.tab === 'all' ? true : event.category === journal.tab) : []; %>
+                <% if (visibleEvents.length) { %>
+                  <% visibleEvents.forEach((event) => { %>
+                    <article
+                      class="journal-event journal-event-<%= event.category %>"
+                      data-journal-event
+                      data-journal-event-category="<%= event.category %>"
+                    >
+                      <div class="journal-event-head">
+                        <div>
+                          <span class="journal-event-time"><%= event.timeLabel %></span>
+                          <strong><%= event.title %></strong>
+                        </div>
+                      </div>
+
+                      <% const detailItems = buildEventItems(event); %>
+                      <% if (detailItems.length) { %>
+                        <dl class="journal-event-record">
+                          <% detailItems.forEach(([label, value]) => { %>
+                            <div class="journal-event-record-item">
+                              <dt><%= label %></dt>
+                              <dd><%= value %></dd>
+                            </div>
+                          <% }) %>
+                        </dl>
+                      <% } %>
+
+                      <% if (event.photos.length) { %>
+                        <div class="journal-event-photos">
+                          <% event.photos.forEach((photoUrl) => { %>
+                            <button
+                              type="button"
+                              class="journal-event-photo"
+                              data-photo-url="<%= photoUrl %>"
+                              data-photo-label="<%= event.title %>"
+                            >
+                              <img src="<%= photoUrl %>" alt="<%= event.title %>" loading="lazy" />
+                            </button>
+                          <% }) %>
+                        </div>
+                      <% } %>
+                    </article>
+                  <% }) %>
+                <% } else { %>
+                  <div class="empty-state journal-empty-state" data-journal-events-empty>
+                    <h3>Событий нет</h3>
+                    <p>Для выбранного фильтра у партии нет подходящих записей.</p>
+                  </div>
+                <% } %>
+              </div>
+            </article>
+          <% }) %>
+        </section>
+      </section>
+    </section>
+  </main>
+</div>
+<%- include('partials/footer') %>

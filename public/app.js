@@ -48,6 +48,192 @@
     }
   }
 
+  const journalRoot = document.querySelector('[data-journal-page]');
+  if (journalRoot) {
+    const searchInput = journalRoot.querySelector('[data-journal-search]');
+    const stageButtons = Array.from(journalRoot.querySelectorAll('[data-journal-stage]'));
+    const tabButtons = Array.from(journalRoot.querySelectorAll('[data-journal-tab]'));
+    const stageFilter = journalRoot.querySelector('[data-journal-stage-filter]');
+    const stageFilterToggle = journalRoot.querySelector('[data-journal-stage-filter-toggle]');
+    const stageFilterMenu = journalRoot.querySelector('[data-journal-stage-filter-menu]');
+    const cardItems = Array.from(journalRoot.querySelectorAll('[data-journal-card]'));
+    const panelItems = Array.from(journalRoot.querySelectorAll('[data-journal-panel]'));
+    const placeholder = journalRoot.querySelector('[data-journal-placeholder]');
+    const cardsEmptyState = journalRoot.querySelector('[data-journal-empty-cards]');
+    const resultsEmptyState = journalRoot.querySelector('[data-journal-empty-results]');
+
+    const readInitialValue = (buttons, attr) => buttons.find((button) => button.classList.contains('active'))?.dataset[attr] || buttons[0]?.dataset[attr] || 'all';
+
+    const state = {
+      search: searchInput ? searchInput.value.trim().toLowerCase() : '',
+      stage: readInitialValue(stageButtons, 'journalStage'),
+      tab: readInitialValue(tabButtons, 'journalTab'),
+      selectedCardId: '',
+      stageFilterOpen: false
+    };
+
+    const setActiveButtons = (buttons, datasetKey, value) => {
+      buttons.forEach((button) => {
+        const isActive = button.dataset[datasetKey] === value;
+        button.classList.toggle('active', isActive);
+      });
+    };
+
+    const matchesCard = (card) => {
+      if (!card) {
+        return false;
+      }
+
+      const cardStage = card.dataset.journalCardStage || 'all';
+      const cardSearch = card.dataset.journalCardSearch || '';
+      const cardSubtypes = (card.dataset.journalCardSubtypes || '').split(/\s+/).filter(Boolean);
+      const stageMatches = state.stage === 'all' || (state.stage === 'important' ? card.dataset.journalCardImportant === '1' : cardStage === state.stage);
+      const searchMatches = !state.search || cardSearch.includes(state.search);
+      const tabMatches = state.tab === 'all' || cardSubtypes.includes(state.tab);
+
+      return stageMatches && searchMatches && tabMatches;
+    };
+
+    const syncSelection = (visibleCards) => {
+      const selectedVisibleCard = visibleCards.find((card) => card.dataset.journalCardId === state.selectedCardId);
+      if (selectedVisibleCard) {
+        return;
+      }
+
+      state.selectedCardId = '';
+    };
+
+    const syncPanels = () => {
+      panelItems.forEach((panel) => {
+        const isActive = panel.dataset.journalPanelId === state.selectedCardId;
+        panel.hidden = !isActive;
+        panel.style.display = isActive ? 'grid' : 'none';
+      });
+    };
+
+    const closeStageFilter = () => {
+      state.stageFilterOpen = false;
+      if (stageFilterMenu) {
+        stageFilterMenu.hidden = true;
+      }
+      if (stageFilterToggle) {
+        stageFilterToggle.setAttribute('aria-expanded', 'false');
+      }
+      if (stageFilter) {
+        stageFilter.classList.remove('open');
+      }
+    };
+
+    const openStageFilter = () => {
+      state.stageFilterOpen = true;
+      if (stageFilterMenu) {
+        stageFilterMenu.hidden = false;
+      }
+      if (stageFilterToggle) {
+        stageFilterToggle.setAttribute('aria-expanded', 'true');
+      }
+      if (stageFilter) {
+        stageFilter.classList.add('open');
+      }
+    };
+
+    const updateView = () => {
+      const visibleCards = cardItems.filter(matchesCard);
+
+      cardItems.forEach((card) => {
+        const visible = matchesCard(card);
+        card.hidden = !visible;
+        card.classList.toggle('active', visible && card.dataset.journalCardId === state.selectedCardId);
+      });
+
+      syncSelection(visibleCards);
+      setActiveButtons(stageButtons, 'journalStage', state.stage);
+      setActiveButtons(tabButtons, 'journalTab', state.tab);
+      syncPanels();
+
+      const hasVisibleCards = visibleCards.length > 0;
+      if (placeholder) {
+        placeholder.hidden = hasVisibleCards ? Boolean(state.selectedCardId) : true;
+      }
+      if (cardsEmptyState) {
+        cardsEmptyState.hidden = false;
+      }
+      if (resultsEmptyState) {
+        resultsEmptyState.hidden = hasVisibleCards;
+      }
+
+      if (stageFilterToggle) {
+        stageFilterToggle.setAttribute('aria-expanded', String(state.stageFilterOpen));
+      }
+    };
+
+    if (searchInput) {
+      searchInput.addEventListener('input', () => {
+        state.search = searchInput.value.trim().toLowerCase();
+        updateView();
+      });
+    }
+
+    if (stageFilterToggle) {
+      stageFilterToggle.addEventListener('click', () => {
+        state.stageFilterOpen = !state.stageFilterOpen;
+        if (state.stageFilterOpen) {
+          openStageFilter();
+        } else {
+          closeStageFilter();
+        }
+      });
+    }
+
+    stageButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        state.stage = button.dataset.journalStage || 'all';
+        closeStageFilter();
+        updateView();
+      });
+    });
+
+    tabButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        state.tab = button.dataset.journalTab || 'all';
+        closeStageFilter();
+        updateView();
+      });
+    });
+
+    cardItems.forEach((card) => {
+      const selector = card.querySelector('[data-journal-select-card]');
+      if (!selector) {
+        return;
+      }
+
+      selector.addEventListener('click', () => {
+        state.selectedCardId = card.dataset.journalCardId || '';
+        updateView();
+      });
+    });
+
+    document.addEventListener('click', (event) => {
+      if (!state.stageFilterOpen || !stageFilter) {
+        return;
+      }
+
+      if (stageFilter.contains(event.target)) {
+        return;
+      }
+
+      closeStageFilter();
+    });
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        closeStageFilter();
+      }
+    });
+
+    updateView();
+  }
+
   const lightbox = document.querySelector('.lightbox');
   if (!lightbox) return;
 
