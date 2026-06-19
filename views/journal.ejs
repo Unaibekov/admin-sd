@@ -6,6 +6,8 @@
   const employeeTabs = Array.isArray(journal.employeeTabs) ? journal.employeeTabs : [];
   const selectedCardId = journal.selectedCardId || '';
   const selectedCard = journal.selectedCard || null;
+  const selectedStageLabel = stageTabs.find((filter) => filter.active)?.label || 'Все стадии';
+  const selectedEmployeeLabel = employeeTabs.find((filter) => filter.active)?.label || 'Все сотрудники';
 
   const formatDaysInStage = (value) => {
     if (!value) {
@@ -46,10 +48,9 @@
 
   <main class="app-main app-main-journal">
     <section class="journal-page" data-journal-page>
-      <header class="journal-hero">
+      <header class="journal-hero app-page-hero">
         <div class="journal-hero-copy">
           <h1>Журнал</h1>
-          <p><%= journal.visibleCardsCount %> из <%= journal.totalCards %> карточек</p>
         </div>
       </header>
 
@@ -58,7 +59,6 @@
           <section class="journal-panel journal-controls-panel">
             <div class="journal-search-row">
               <div class="journal-filter-group">
-                <span class="journal-filter-label">Поиск</span>
                 <label class="journal-search">
                   <input
                     type="search"
@@ -133,12 +133,16 @@
                     data-journal-tab="<%= filter.key %>"
                   >
                     <span class="journal-pill-label"><%= filter.label %></span>
-                    <span class="journal-pill-count"><%= filter.count %></span>
                   </button>
                 <% }) %>
               </div>
             </div>
           </section>
+
+          <div class="journal-selection-summary" data-journal-selection-summary>
+            <strong data-journal-selected-stage><%= selectedStageLabel %></strong>
+            <span data-journal-selected-employee><%= selectedEmployeeLabel %></span>
+          </div>
 
           <section class="journal-panel journal-cards-panel">
             <div class="journal-cards-list">
@@ -244,39 +248,44 @@
                       data-journal-event
                       data-journal-event-category="<%= event.category %>"
                     >
-                      <div class="journal-event-head">
-                        <div>
-                          <span class="journal-event-time"><%= event.timeLabel %></span>
-                          <strong><%= event.title %></strong>
-                        </div>
+                      <div class="journal-event-time-column">
+                        <span class="journal-event-time"><%= event.timeLabel %></span>
                       </div>
 
-                      <% const detailItems = buildEventItems(event); %>
-                      <% if (detailItems.length) { %>
-                        <dl class="journal-event-record">
-                          <% detailItems.forEach(([label, value]) => { %>
-                            <div class="journal-event-record-item">
-                              <dt><%= label %></dt>
-                              <dd><%= value %></dd>
-                            </div>
-                          <% }) %>
-                        </dl>
-                      <% } %>
+                      <div class="journal-event-content">
+                        <strong class="journal-event-title"><%= event.title %></strong>
 
-                      <% if (event.photos.length) { %>
-                        <div class="journal-event-photos">
-                          <% event.photos.forEach((photoUrl) => { %>
-                            <button
-                              type="button"
-                              class="journal-event-photo"
-                              data-photo-url="<%= photoUrl %>"
-                              data-photo-label="<%= event.title %>"
-                            >
-                              <img src="<%= photoUrl %>" alt="<%= event.title %>" loading="lazy" />
-                            </button>
-                          <% }) %>
-                        </div>
-                      <% } %>
+                        <% const detailItems = buildEventItems(event); %>
+                        <% if (detailItems.length || event.photos.length) { %>
+                          <div class="journal-event-body">
+                            <% if (detailItems.length) { %>
+                              <dl class="journal-event-record">
+                                <% detailItems.forEach(([label, value]) => { %>
+                                  <div class="journal-event-record-item">
+                                    <dt><%= label %></dt>
+                                    <dd><%= value %></dd>
+                                  </div>
+                                <% }) %>
+                              </dl>
+                            <% } %>
+
+                            <% if (event.photos.length) { %>
+                              <div class="journal-event-photos">
+                                <% event.photos.forEach((photoUrl) => { %>
+                                  <button
+                                    type="button"
+                                    class="journal-event-photo"
+                                    data-photo-url="<%= photoUrl %>"
+                                    data-photo-label="<%= event.title %>"
+                                  >
+                                    <img src="<%= photoUrl %>" alt="<%= event.title %>" loading="lazy" />
+                                  </button>
+                                <% }) %>
+                              </div>
+                            <% } %>
+                          </div>
+                        <% } %>
+                      </div>
                     </article>
                   <% }) %>
                 <% } else { %>

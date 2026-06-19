@@ -61,6 +61,9 @@
     const stageFilter = journalRoot.querySelector('[data-journal-stage-filter]');
     const stageFilterToggle = journalRoot.querySelector('[data-journal-stage-filter-toggle]');
     const stageFilterMenu = journalRoot.querySelector('[data-journal-stage-filter-menu]');
+    const selectionSummary = journalRoot.querySelector('[data-journal-selection-summary]');
+    const selectedStageLabel = journalRoot.querySelector('[data-journal-selected-stage]');
+    const selectedEmployeeLabel = journalRoot.querySelector('[data-journal-selected-employee]');
     const cardItems = Array.from(journalRoot.querySelectorAll('[data-journal-card]'));
     const panelItems = Array.from(journalRoot.querySelectorAll('[data-journal-panel]'));
     const placeholder = journalRoot.querySelector('[data-journal-placeholder]');
@@ -93,6 +96,12 @@
         const isActive = button.dataset[datasetKey] === value;
         button.classList.toggle('active', isActive);
       });
+    };
+
+    const readActiveButtonLabel = (buttons) => {
+      const activeButton = buttons.find((button) => button.classList.contains('active')) || buttons[0];
+      const labelNode = activeButton ? activeButton.querySelector('.journal-pill-label') : null;
+      return labelNode ? labelNode.textContent.trim() : '';
     };
 
     const matchesCard = (card) => {
@@ -204,6 +213,16 @@
       setActiveButtons(employeeButtons, 'journalEmployee', state.employee);
       setActiveButtons(tabButtons, 'journalTab', state.tab);
       syncPanels();
+
+      if (selectedStageLabel) {
+        selectedStageLabel.textContent = readActiveButtonLabel(stageButtons) || 'Все стадии';
+      }
+      if (selectedEmployeeLabel) {
+        selectedEmployeeLabel.textContent = readActiveButtonLabel(employeeButtons) || 'Все сотрудники';
+      }
+      if (selectionSummary) {
+        selectionSummary.hidden = false;
+      }
 
       const hasVisibleCards = visibleCards.length > 0;
       if (placeholder) {
@@ -378,6 +397,69 @@
     });
 
     updateView();
+  }
+
+  const reportsRoot = document.querySelector('[data-reports-page]');
+  if (reportsRoot) {
+    const searchInput = reportsRoot.querySelector('[data-reports-search]');
+    const filterButtons = Array.from(reportsRoot.querySelectorAll('[data-reports-filter]'));
+    const cards = Array.from(reportsRoot.querySelectorAll('[data-reports-card]'));
+    const countBadge = reportsRoot.querySelector('[data-reports-filter-count]');
+
+    const state = {
+      search: searchInput ? searchInput.value.trim().toLowerCase() : '',
+      filter: 'all'
+    };
+
+    const matchesCard = (card) => {
+      if (!card) {
+        return false;
+      }
+
+      const status = card.dataset.reportsCardStatus || 'active';
+      const searchText = card.dataset.reportsCardSearch || '';
+      const filterMatches = state.filter === 'all' || status === state.filter;
+      const searchMatches = !state.search || searchText.includes(state.search);
+      return filterMatches && searchMatches;
+    };
+
+    const syncView = () => {
+      let visibleCount = 0;
+
+      cards.forEach((card) => {
+        const visible = matchesCard(card);
+        card.hidden = !visible;
+        if (visible) {
+          visibleCount += 1;
+        }
+      });
+
+      filterButtons.forEach((button) => {
+        const isActive = button.dataset.reportsFilter === state.filter;
+        button.classList.toggle('active', isActive);
+      });
+
+      if (countBadge) {
+        countBadge.textContent = String(visibleCount);
+      }
+
+    };
+
+    if (searchInput) {
+      searchInput.addEventListener('input', () => {
+        state.search = searchInput.value.trim().toLowerCase();
+        syncView();
+      });
+    }
+
+    filterButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        state.filter = button.dataset.reportsFilter || 'all';
+        syncView();
+      });
+    });
+
+    syncView();
   }
 
   const lightbox = document.querySelector('.lightbox');

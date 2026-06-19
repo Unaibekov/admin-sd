@@ -36,7 +36,7 @@ const JOURNAL_SUBTAB_ORDER = [
 ];
 
 const JOURNAL_STAGE_TAB_LABELS = {
-  all: 'Все',
+  all: 'Все стадии',
   important: 'Важное',
   'Введение в культуру': 'Введение в культуру',
   'Клонирование': 'Клонирование',
