@@ -1,4 +1,4 @@
-const { clearAllReports } = require('../src/reports');
+const { clearAllReports } = require('../src/reportStore');
 
 async function main() {
   const clearedCount = await clearAllReports();

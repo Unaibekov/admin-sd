@@ -344,6 +344,309 @@ function parseReport(raw, options = {}) {
   };
 }
 
+function normalizeMergeKey(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function firstNonEmptyValue(...values) {
+  for (const value of values) {
+    if (Array.isArray(value)) {
+      if (value.length) {
+        return value;
+      }
+      continue;
+    }
+    if (value && typeof value === 'object') {
+      if (Object.keys(value).length) {
+        return value;
+      }
+      continue;
+    }
+    if (typeof value === 'string' && value.trim()) {
+      return value;
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === 'boolean') {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function mergeUniqueStrings(left = [], right = []) {
+  const values = [];
+  const seen = new Set();
+
+  for (const value of [...toArray(left), ...toArray(right)]) {
+    const text = typeof value === 'string' ? value.trim() : String(value || '').trim();
+    if (!text) {
+      continue;
+    }
+    const key = text.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    values.push(value);
+  }
+
+  return values;
+}
+
+function mergeShallowObjects(left, right) {
+  return {
+    ...(left && typeof left === 'object' ? left : {}),
+    ...(right && typeof right === 'object' ? right : {})
+  };
+}
+
+function mergeCardRaw(existingCardRaw, incomingCardRaw, existingParsedCard, incomingParsedCard) {
+  const merged = {
+    ...(existingCardRaw && typeof existingCardRaw === 'object' ? existingCardRaw : {})
+  };
+
+  const scalarKeys = [
+    'cardId',
+    'code',
+    'partyCode',
+    'partyId',
+    'party_id',
+    'id',
+    'cultureName',
+    'speciesName',
+    'varietyName',
+    'culture',
+    'crop',
+    'plant',
+    'sort',
+    'grade',
+    'stage',
+    'phase',
+    'batchStatus',
+    'status',
+    'partyStatus',
+    'sterilityStatus',
+    'quantity',
+    'initialCount',
+    'startCount',
+    'plannedCount',
+    'currentQuantity',
+    'currentCount',
+    'remainingCount',
+    'balance',
+    'locationDescription',
+    'location',
+    'place',
+    'position',
+    'problem',
+    'problemType',
+    'risk',
+    'riskLevel',
+    'createdAt',
+    'updatedAt',
+    'date',
+    'author',
+    'user',
+    'userName'
+  ];
+
+  for (const key of scalarKeys) {
+    const incomingValue = incomingCardRaw && incomingCardRaw[key];
+    const existingValue = merged[key];
+    const preferred = firstNonEmptyValue(incomingValue, existingValue);
+    if (preferred !== undefined) {
+      merged[key] = preferred;
+    }
+  }
+
+  merged.photos = mergeUniqueStrings(existingCardRaw && existingCardRaw.photos, incomingCardRaw && incomingCardRaw.photos);
+  merged.photoFiles = mergeUniqueStrings(existingCardRaw && existingCardRaw.photoFiles, incomingCardRaw && incomingCardRaw.photoFiles);
+  merged.photoPaths = mergeUniqueStrings(existingCardRaw && existingCardRaw.photoPaths, incomingCardRaw && incomingCardRaw.photoPaths);
+  merged.images = mergeUniqueStrings(existingCardRaw && existingCardRaw.images, incomingCardRaw && incomingCardRaw.images);
+
+  const existingEvents = toArray(existingCardRaw && existingCardRaw.events);
+  const incomingEvents = toArray(incomingCardRaw && incomingCardRaw.events);
+  const existingParsedEvents = toArray(existingParsedCard && existingParsedCard.events);
+  const incomingParsedEvents = toArray(incomingParsedCard && incomingParsedCard.events);
+
+  const eventIndexByKey = new Map();
+  const mergedEvents = [];
+
+  existingEvents.forEach((event, index) => {
+    const parsedEvent = existingParsedEvents[index] || {};
+    const eventKey = normalizeMergeKey(firstNonEmptyValue(parsedEvent.eventId, event && event.eventId, `${index + 1}`));
+    if (!eventIndexByKey.has(eventKey)) {
+      eventIndexByKey.set(eventKey, mergedEvents.length);
+      mergedEvents.push(event);
+    }
+  });
+
+  incomingEvents.forEach((event, index) => {
+    const parsedEvent = incomingParsedEvents[index] || {};
+    const eventKey = normalizeMergeKey(firstNonEmptyValue(parsedEvent.eventId, event && event.eventId, `${index + 1}`));
+    const existingIndex = eventIndexByKey.get(eventKey);
+    if (existingIndex !== undefined) {
+      mergedEvents[existingIndex] = mergeShallowObjects(mergedEvents[existingIndex], event);
+      mergedEvents[existingIndex].photos = mergeUniqueStrings(mergedEvents[existingIndex].photos, event.photos);
+      return;
+    }
+
+    eventIndexByKey.set(eventKey, mergedEvents.length);
+    mergedEvents.push(event);
+  });
+
+  merged.events = mergedEvents;
+  if (existingCardRaw && typeof existingCardRaw.extraFields === 'object' && !Array.isArray(existingCardRaw.extraFields)) {
+    merged.extraFields = mergeShallowObjects(existingCardRaw.extraFields, incomingCardRaw && incomingCardRaw.extraFields);
+  } else if (incomingCardRaw && typeof incomingCardRaw.extraFields === 'object' && !Array.isArray(incomingCardRaw.extraFields)) {
+    merged.extraFields = mergeShallowObjects(incomingCardRaw.extraFields, {});
+  }
+
+  return merged;
+}
+
+function mergeReportRaw(existingParsed, incomingParsed, finalReportId) {
+  const existingRaw = existingParsed ? existingParsed.raw : null;
+  const incomingRaw = incomingParsed ? incomingParsed.raw : null;
+  const existingCards = toArray(existingRaw && existingRaw.cards);
+  const incomingCards = toArray(incomingRaw && incomingRaw.cards);
+  const existingParsedCards = toArray(existingParsed && existingParsed.cards);
+  const incomingParsedCards = toArray(incomingParsed && incomingParsed.cards);
+
+  const mergedCards = existingCards.map((card) => ({
+    ...(card && typeof card === 'object' ? card : {})
+  }));
+
+  const cardIndexByKey = new Map();
+
+  existingCards.forEach((card, index) => {
+    const parsedCard = existingParsedCards[index] || {};
+    const cardKey = normalizeMergeKey(firstNonEmptyValue(parsedCard.cardId, parsedCard.code, card && card.cardId, card && card.code, `card-${index + 1}`));
+    if (!cardIndexByKey.has(cardKey)) {
+      cardIndexByKey.set(cardKey, index);
+    }
+  });
+
+  incomingCards.forEach((card, index) => {
+    const parsedCard = incomingParsedCards[index] || {};
+    const cardKey = normalizeMergeKey(firstNonEmptyValue(parsedCard.cardId, parsedCard.code, card && card.cardId, card && card.code, `card-${index + 1}`));
+    const existingIndex = cardIndexByKey.get(cardKey);
+
+    if (existingIndex !== undefined) {
+      mergedCards[existingIndex] = mergeCardRaw(
+        mergedCards[existingIndex],
+        card,
+        existingParsedCards[existingIndex] || {},
+        parsedCard
+      );
+      return;
+    }
+
+    cardIndexByKey.set(cardKey, mergedCards.length);
+    mergedCards.push({
+      ...(card && typeof card === 'object' ? card : {})
+    });
+  });
+
+  const mergedRaw = {
+    ...(existingRaw && typeof existingRaw === 'object' ? existingRaw : {}),
+    ...(incomingRaw && typeof incomingRaw === 'object' ? incomingRaw : {})
+  };
+
+  mergedRaw.reportId = finalReportId;
+  mergedRaw.createdAt = firstNonEmptyValue(existingRaw && existingRaw.createdAt, incomingRaw && incomingRaw.createdAt, new Date().toISOString());
+  mergedRaw.deviceId = firstNonEmptyValue(existingRaw && existingRaw.deviceId, incomingRaw && incomingRaw.deviceId) || '';
+  mergedRaw.testLocation = firstNonEmptyValue(existingRaw && existingRaw.testLocation, incomingRaw && incomingRaw.testLocation) || '';
+  mergedRaw.user = mergeShallowObjects(existingRaw && existingRaw.user, incomingRaw && incomingRaw.user);
+  mergedRaw.summary = mergeShallowObjects(existingRaw && existingRaw.summary, incomingRaw && incomingRaw.summary);
+  mergedRaw.cards = mergedCards;
+
+  return mergedRaw;
+}
+
+function buildReportFingerprint(parsed) {
+  if (!parsed || typeof parsed !== 'object') {
+    return '';
+  }
+
+  const cards = toArray(parsed.cards).map((card) => ({
+    code: card && card.code ? String(card.code).trim().toLowerCase() : '',
+    culture: card && card.culture ? String(card.culture).trim().toLowerCase() : '',
+    variety: card && card.variety ? String(card.variety).trim().toLowerCase() : '',
+    sort: card && card.sort ? String(card.sort).trim().toLowerCase() : '',
+    stage: card && card.stage ? String(card.stage).trim().toLowerCase() : '',
+    status: card && card.status ? String(card.status).trim().toLowerCase() : '',
+    quantity: card && card.initialCount ? String(card.initialCount).trim().toLowerCase() : '',
+    currentCount: card && card.currentCount ? String(card.currentCount).trim().toLowerCase() : '',
+    location: card && card.location ? String(card.location).trim().toLowerCase() : '',
+    events: toArray(card && card.events).map((event) => ({
+      createdBy: event && event.createdBy ? String(event.createdBy).trim().toLowerCase() : '',
+      date: event && event.date ? String(event.date).trim().toLowerCase() : '',
+      createdAt: event && event.createdAt ? String(event.createdAt).trim().toLowerCase() : '',
+      time: event && event.time ? String(event.time).trim().toLowerCase() : '',
+      timestamp: event && event.timestamp ? String(event.timestamp).trim().toLowerCase() : '',
+      type: event && event.type ? String(event.type).trim().toLowerCase() : '',
+      title: event && event.title ? String(event.title).trim().toLowerCase() : '',
+      stage: event && event.stage ? String(event.stage).trim().toLowerCase() : '',
+      comment: event && event.comment ? String(event.comment).trim().toLowerCase() : '',
+      problem: event && event.problem ? String(event.problem).trim().toLowerCase() : '',
+      risk: event && event.risk ? String(event.risk).trim().toLowerCase() : '',
+      quantity: event && event.quantity ? String(event.quantity).trim().toLowerCase() : '',
+      previousQuantity: event && event.previousQuantity ? String(event.previousQuantity).trim().toLowerCase() : '',
+      currentQuantity: event && event.currentQuantity ? String(event.currentQuantity).trim().toLowerCase() : ''
+    }))
+  }));
+
+  return JSON.stringify({
+    createdAt: parsed.createdAt ? String(parsed.createdAt).trim() : '',
+    deviceId: parsed.deviceId ? String(parsed.deviceId).trim().toLowerCase() : '',
+    user: {
+      userId: parsed.user && parsed.user.userId ? String(parsed.user.userId).trim().toLowerCase() : '',
+      firstName: parsed.user && parsed.user.firstName ? String(parsed.user.firstName).trim().toLowerCase() : '',
+      lastName: parsed.user && parsed.user.lastName ? String(parsed.user.lastName).trim().toLowerCase() : '',
+      displayName: parsed.user && parsed.user.displayName ? String(parsed.user.displayName).trim().toLowerCase() : '',
+      role: parsed.user && parsed.user.role ? String(parsed.user.role).trim().toLowerCase() : ''
+    },
+    testLocation: parsed.testLocation ? String(parsed.testLocation).trim().toLowerCase() : '',
+    cards
+  });
+}
+
+async function loadExistingReportFingerprints() {
+  await fs.mkdir(REPORTS_DIR, { recursive: true });
+  const entries = await fs.readdir(REPORTS_DIR, { withFileTypes: true });
+  const fingerprints = new Map();
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+
+    const reportId = safeReportId(entry.name);
+    const reportJsonPath = path.join(REPORTS_DIR, reportId, 'report.json');
+    if (!(await pathExists(reportJsonPath))) {
+      continue;
+    }
+
+    try {
+      const raw = await readJsonFile(reportJsonPath);
+      const parsed = parseReport(raw, { fallbackId: reportId });
+      const fingerprint = buildReportFingerprint(parsed);
+      if (!fingerprints.has(fingerprint)) {
+        fingerprints.set(fingerprint, {
+          reportId: parsed.reportId,
+          reportDir: path.join(REPORTS_DIR, reportId),
+          parsed
+        });
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return fingerprints;
+}
+
 async function writeJson(targetPath, value) {
   await fs.mkdir(path.dirname(targetPath), { recursive: true });
   await fs.writeFile(targetPath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
@@ -421,34 +724,44 @@ async function processUploadedReport(buffer, originalName) {
     const reportJsonPath = path.join(extractedDir, 'report.json');
     const rawReport = await readJsonFile(reportJsonPath);
     const parsed = parseReport(rawReport, { fallbackId: path.parse(originalName).name });
-
-    let finalReportId = parsed.reportId;
-    let reportDir = path.join(REPORTS_DIR, finalReportId);
-    let suffix = 2;
-    while (await pathExists(reportDir)) {
-      finalReportId = `${parsed.reportId}-${suffix}`;
-      reportDir = path.join(REPORTS_DIR, finalReportId);
-      suffix += 1;
-    }
-
-    parsed.reportId = finalReportId;
-    rawReport.reportId = finalReportId;
-    rawReport.cards = toArray(rawReport.cards).map((card, cardIndex) => {
-      const normalizedCard = parsed.cards[cardIndex] || { events: [] };
-      const events = toArray(card.events).map((event, eventIndex) => ({
-        ...event,
-        eventId: normalizedCard.events[eventIndex] ? normalizedCard.events[eventIndex].eventId : `${finalReportId}-${cardIndex + 1}-${eventIndex + 1}`,
-        createdBy: normalizedCard.events[eventIndex] ? normalizedCard.events[eventIndex].createdBy : firstString(event, ['createdBy']) || firstString(event, ['author', 'user', 'userName']) || 'Неизвестно'
-      }));
-      return {
-        ...card,
-        events
+    const incomingFingerprint = buildReportFingerprint(parsed);
+    const existingReports = await loadExistingReportFingerprints();
+    const matchedExisting = existingReports.get(incomingFingerprint) || null;
+    const finalReportId = matchedExisting ? matchedExisting.reportId : parsed.reportId;
+    const reportDir = matchedExisting ? matchedExisting.reportDir : path.join(REPORTS_DIR, finalReportId);
+    const reportJsonTarget = path.join(reportDir, 'report.json');
+    const hasExistingReport = await pathExists(reportJsonTarget);
+    const mergedRaw = hasExistingReport
+      ? mergeReportRaw(
+        parseReport(await readJsonFile(reportJsonTarget), { fallbackId: finalReportId }),
+        parsed,
+        finalReportId
+      )
+      : {
+        ...rawReport,
+        reportId: finalReportId
       };
-    });
+    const mergedParsed = parseReport(mergedRaw, { fallbackId: finalReportId });
+    const storageRaw = {
+      ...mergedRaw,
+      cards: toArray(mergedRaw.cards).map((card, cardIndex) => {
+        const normalizedCard = mergedParsed.cards[cardIndex] || { events: [] };
+        const events = toArray(card.events).map((event, eventIndex) => ({
+          ...event,
+          eventId: normalizedCard.events[eventIndex] ? normalizedCard.events[eventIndex].eventId : `${finalReportId}-${cardIndex + 1}-${eventIndex + 1}`,
+          createdBy: normalizedCard.events[eventIndex] ? normalizedCard.events[eventIndex].createdBy : firstString(event, ['createdBy']) || firstString(event, ['author', 'user', 'userName']) || 'Неизвестно'
+        }));
+        return {
+          ...card,
+          events
+        };
+      })
+    };
+
     await fs.mkdir(reportDir, { recursive: true });
 
-    await writeJson(path.join(reportDir, 'report.json'), rawReport);
-    await writeJson(path.join(reportDir, 'summary.json'), parsed.summary);
+    await writeJson(reportJsonTarget, storageRaw);
+    await writeJson(path.join(reportDir, 'summary.json'), mergedParsed.summary);
 
     const photosDir = path.join(extractedDir, 'photos');
     await fs.mkdir(path.join(reportDir, 'photos'), { recursive: true });
@@ -475,6 +788,7 @@ async function listReports() {
   const entries = await fs.readdir(REPORTS_DIR, { withFileTypes: true });
   const hiddenReportIds = await readHiddenReportIds();
   const reports = [];
+  const seenFingerprints = new Set();
 
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
@@ -493,6 +807,11 @@ async function listReports() {
     try {
       const raw = await readJsonFile(reportJsonPath);
       const parsed = parseReport(raw, { fallbackId: reportId });
+      const fingerprint = buildReportFingerprint(parsed);
+      if (seenFingerprints.has(fingerprint)) {
+        continue;
+      }
+      seenFingerprints.add(fingerprint);
       let summary = parsed.summary;
       if (await pathExists(summaryJsonPath)) {
         const storedSummary = await readJsonFile(summaryJsonPath);
@@ -520,18 +839,20 @@ async function listReports() {
 async function clearAllReports() {
   await fs.mkdir(REPORTS_DIR, { recursive: true });
   const entries = await fs.readdir(REPORTS_DIR, { withFileTypes: true });
-  const hiddenReportIds = new Set();
-
+  let clearedCount = 0;
   for (const entry of entries) {
-    if (!entry.isDirectory()) {
-      continue;
+    if (!entry.isDirectory()) continue;
+    if (await pathExists(path.join(REPORTS_DIR, entry.name, 'report.json'))) {
+      clearedCount += 1;
     }
-
-    hiddenReportIds.add(safeReportId(entry.name));
   }
 
-  await writeHiddenReportIds([...hiddenReportIds]);
-  return hiddenReportIds.size;
+  await replaceReportsDirectory();
+  return clearedCount;
+}
+
+function scheduleReportsCleanup() {
+  replaceReportsDirectory().catch(() => {});
 }
 
 async function removeTreeWithRetry(targetPath) {
@@ -574,6 +895,20 @@ async function removeTree(targetPath) {
   }
 
   await fs.unlink(targetPath);
+}
+
+async function replaceReportsDirectory() {
+  await fs.mkdir(DATA_DIR, { recursive: true });
+  const trashPath = path.join(DATA_DIR, `.reports-trash-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+
+  if (await pathExists(REPORTS_DIR)) {
+    await fs.rename(REPORTS_DIR, trashPath);
+  }
+
+  await fs.mkdir(REPORTS_DIR, { recursive: true });
+  await fs.writeFile(path.join(REPORTS_DIR, '.gitkeep'), '\n', 'utf8');
+
+  removeTreeWithRetry(trashPath).catch(() => {});
 }
 
 async function getReport(reportId) {
@@ -1042,6 +1377,7 @@ function deriveSummary(rawSummary, cards) {
 module.exports = {
   listReports,
   clearAllReports,
+  scheduleReportsCleanup,
   getReport,
   processUploadedReport,
   safeReportId,

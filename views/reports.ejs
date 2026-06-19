@@ -5,13 +5,12 @@
   const selectedEmployeeKey = reportsPage && reportsPage.selectedEmployeeKey ? reportsPage.selectedEmployeeKey : '';
   const selectedReportData = typeof selectedReport !== 'undefined' ? selectedReport : null;
   const reportCards = selectedReportData && Array.isArray(selectedReportData.cards) ? selectedReportData.cards : [];
-  const reportCardStatusOrder = ['all', 'active', 'partial', 'sold', 'quarantine', 'archived', 'problem', 'other'];
+  const reportCardStatusOrder = ['all', 'active', 'partial', 'sold', 'archived', 'problem', 'other'];
   const reportCardStatusLabels = {
     all: 'Все',
     active: 'Активная',
     partial: 'Частичная',
     sold: 'Продано',
-    quarantine: 'Карантин',
     archived: 'Архив',
     problem: 'Проблема',
     other: 'Статус'
@@ -30,7 +29,7 @@
     const now = new Date();
     const startUtc = Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate());
     const nowUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-    const days = Math.max(0, Math.floor((nowUtc - startUtc) / 86400000));
+    const days = Math.max(1, Math.floor((nowUtc - startUtc) / 86400000) + 1);
     const lastTwoDigits = days % 100;
     const lastDigit = days % 10;
 
@@ -64,26 +63,42 @@
     return `${quantity} шт.`;
   };
 
-  const hasProblemSignals = (card) => Boolean(
-    card && (
+  const normalizeStatusText = (value) => String(value || '').trim().toLowerCase();
+
+  const cardEvents = (card) => Array.isArray(card && card.events) ? card.events : [];
+
+  const hasEventType = (card, types) => {
+    const normalizedTypes = new Set(types.map((type) => normalizeStatusText(type)));
+    return cardEvents(card).some((event) => normalizedTypes.has(normalizeStatusText(event.type || event.title)));
+  };
+
+  const hasProblemSignals = (card) => {
+    if (!card) {
+      return false;
+    }
+
+    const rawStatus = normalizeStatusText(card.batchStatus || card.status);
+    const sterility = normalizeStatusText(card.sterilityStatus);
+
+    return Boolean(
       card.problem ||
       card.problemType ||
       card.risk ||
       card.riskLevel ||
-      String(card.sterilityStatus || '').toLowerCase().includes('contamin') ||
-      String(card.batchStatus || card.status || '').toLowerCase().includes('problem') ||
-      String(card.batchStatus || card.status || '').toLowerCase().includes('risk') ||
-      String(card.batchStatus || card.status || '').toLowerCase().includes('quarantine') ||
-      (Array.isArray(card.events) && card.events.some((event) => event.problem || event.problemType || event.risk || event.riskLevel))
-    )
-  );
+      sterility.includes('contamin') ||
+      sterility.includes('контам') ||
+      rawStatus.includes('problem') ||
+      rawStatus.includes('quarantine') ||
+      rawStatus.includes('карантин') ||
+      rawStatus.includes('проблем') ||
+      hasEventType(card, ['problem', 'contamination', 'quarantine', 'greenhouseDisease']) ||
+      cardEvents(card).some((event) => event.problem || event.problemType || event.risk || event.riskLevel)
+    );
+  };
 
-  const resolveCardStatus = (card) => {
-    const rawStatus = String(card && (card.batchStatus || card.status || '')).trim().toLowerCase();
+  const resolveRawCardStatus = (card) => {
+    const rawStatus = normalizeStatusText(card && (card.batchStatus || card.status || ''));
 
-    if (hasProblemSignals(card)) {
-      return 'problem';
-    }
     if (rawStatus.includes('quarantine')) {
       return 'quarantine';
     }
@@ -101,6 +116,80 @@
     }
 
     return rawStatus || 'other';
+  };
+
+  const resolveCardStatus = (card) => {
+    const rawStatus = resolveRawCardStatus(card);
+
+    if (hasProblemSignals(card) || rawStatus === 'quarantine') {
+      return 'problem';
+    }
+
+    return rawStatus;
+  };
+
+  const buildCardStatusDots = (card) => {
+    const rawStatus = resolveRawCardStatus(card);
+    const dots = [];
+
+    if (rawStatus === 'partial') {
+      dots.push('active', 'partial');
+    } else if (['problem', 'quarantine', 'contamination'].includes(rawStatus)) {
+      dots.push('active', rawStatus);
+    } else {
+      dots.push(rawStatus === 'draft' ? 'draft' : rawStatus);
+    }
+
+    if (hasProblemSignals(card) && !['problem', 'quarantine'].includes(rawStatus)) {
+      const sterility = normalizeStatusText(card && card.sterilityStatus);
+      dots.push(sterility.includes('contamin') || sterility.includes('контам') ? 'contamination' : 'problem');
+    }
+
+    return [...new Set(dots.filter(Boolean))];
+  };
+
+  const formatStatusNote = (card) => {
+    const rawStatus = resolveRawCardStatus(card);
+    const sterility = normalizeStatusText(card && card.sterilityStatus);
+    const events = cardEvents(card);
+    const problemEvent = events.find((event) => event.problemType || event.riskLevel || ['problem', 'contamination', 'quarantine', 'greenhouseDisease'].includes(normalizeStatusText(event.type)));
+
+    if (card.problem || card.problemType) {
+      return { text: card.problem || card.problemType, tone: 'problem', icon: 'info' };
+    }
+
+    if (sterility.includes('contamin') || sterility.includes('контам') || hasEventType(card, ['contamination'])) {
+      return { text: 'Контаминация', tone: 'problem', icon: 'info' };
+    }
+
+    if (rawStatus === 'quarantine' || hasEventType(card, ['quarantine'])) {
+      return { text: 'Карантин', tone: 'problem', icon: 'info' };
+    }
+
+    if (problemEvent) {
+      return { text: problemEvent.problemType || problemEvent.riskLevel || 'Проблема', tone: 'problem', icon: 'info' };
+    }
+
+    if (card.risk || card.riskLevel) {
+      return { text: `Риск: ${card.risk || card.riskLevel}`, tone: 'problem', icon: 'info' };
+    }
+
+    const isIntroStage = (card.stage || '') === 'Введение в культуру';
+    const startDate = card.date || card.createdAt || selectedReportData.createdAt;
+    const start = startDate ? new Date(startDate) : null;
+    const days = start && !Number.isNaN(start.getTime())
+      ? Math.max(1, Math.floor((Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate()) - Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate())) / 86400000) + 1)
+      : 0;
+
+    if (isIntroStage && days >= 14) {
+      return { text: 'Готово к смене стадии', tone: 'warning', icon: 'time' };
+    }
+
+    if (isIntroStage && normalizeStatusText(card.qrStatus || card.extraFields?.qrStatus) === 'pending_print') {
+      return { text: 'QR ожидает печати', tone: 'info', icon: 'info' };
+    }
+
+    return { text: reportCardStatusLabels[rawStatus] || card.stage || 'Активная', tone: 'info', icon: 'dot' };
   };
 
   const buildCardSearchText = (card) => [
@@ -124,28 +213,6 @@
     .toLowerCase();
 
   const buildCardTitle = (card) => [card.cultureName, card.speciesName, card.varietyName].filter(Boolean).join(' · ') || card.code || 'Без названия';
-  const buildCardStatusLabel = (card) => reportCardStatusLabels[resolveCardStatus(card)] || 'Активная';
-  const buildCardNote = (card) => {
-    if (card.problem || card.problemType) {
-      return card.problem || card.problemType;
-    }
-
-    if (card.risk || card.riskLevel) {
-      return card.risk || card.riskLevel;
-    }
-
-    const sterility = String(card.sterilityStatus || '').trim();
-    if (sterility && !['sterile', 'нормальный', 'normal', 'unchecked'].includes(sterility.toLowerCase())) {
-      return sterility;
-    }
-
-    const status = resolveCardStatus(card);
-    if (status === 'active') {
-      return card.stage || 'Активная';
-    }
-
-    return buildCardStatusLabel(card);
-  };
 
   const cardFilterCounts = new Map(reportCardStatusOrder.map((key) => [key, 0]));
   reportCards.forEach((card) => {
@@ -263,7 +330,8 @@
                 <% reportCards.forEach((card) => { %>
                   <% const statusKey = resolveCardStatus(card); %>
                   <% const hasProblem = statusKey === 'problem'; %>
-                  <% const noteText = buildCardNote(card); %>
+                  <% const statusDots = buildCardStatusDots(card); %>
+                  <% const note = formatStatusNote(card); %>
                   <a
                     class="reports-card <%= hasProblem ? 'is-problem' : 'is-active' %>"
                     href="/reports/<%= encodeURIComponent(selectedReportData.reportId) %>?q=<%= encodeURIComponent(card.code) %>"
@@ -276,11 +344,10 @@
                         <h3><%= buildCardTitle(card) %></h3>
                         <span><%= card.stage || 'Без стадии' %></span>
                       </div>
-                      <div class="reports-card-dots">
-                        <span class="reports-card-dot reports-card-dot-status reports-card-dot-status-<%= statusKey %>"></span>
-                        <% if (hasProblem) { %>
-                          <span class="reports-card-dot reports-card-dot-problem"></span>
-                        <% } %>
+                      <div class="reports-card-dots" aria-label="<%= statusDots.map((dot) => reportCardStatusLabels[dot] || dot).join(', ') %>">
+                        <% statusDots.forEach((dot) => { %>
+                          <span class="reports-card-dot reports-card-dot-status reports-card-dot-status-<%= dot %>"></span>
+                        <% }) %>
                       </div>
                     </div>
 
@@ -301,9 +368,9 @@
                       </div>
                     </div>
 
-                    <div class="reports-card-note <%= hasProblem ? 'is-problem' : 'is-info' %>">
-                      <span class="reports-card-note-icon"></span>
-                      <span><%= noteText %></span>
+                    <div class="reports-card-note is-<%= note.tone %>">
+                      <span class="reports-card-note-icon reports-card-note-icon-<%= note.icon %>"></span>
+                      <span><%= note.text %></span>
                     </div>
                   </a>
                 <% }) %>
