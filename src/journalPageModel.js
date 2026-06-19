@@ -89,6 +89,7 @@ function buildJournalPageModel(reports = [], query = {}) {
     tab,
     stageTabs: buildStageTabs(cards, stage),
     subtabTabs: buildSubtabTabs(cards, stage, tab),
+    employeeTabs: buildEmployeeTabs(cards),
     totalCards: cards.length,
     visibleCardsCount: visibleCards.length,
     selectedCardId: '',
@@ -103,6 +104,7 @@ function buildJournalCards(reports, search, stage, tab) {
   const sortedCards = reports
     .flatMap((report) => {
       const cards = Array.isArray(report.cards) ? report.cards : [];
+      const employee = resolveReportEmployee(report);
 
       return cards.map((card, index) => {
         const events = normalizeJournalEvents(report, card);
@@ -121,7 +123,7 @@ function buildJournalCards(reports, search, stage, tab) {
           card.batchStatus,
           card.currentQuantity,
           card.quantity,
-          report.user && report.user.displayName,
+          employee,
           report.reportId,
           lastEvent && lastEvent.title,
           ...events.flatMap((event) => [event.title, event.searchText]),
@@ -135,6 +137,7 @@ function buildJournalCards(reports, search, stage, tab) {
           reportId: report.reportId,
           reportTitle: resolveReportTitle(report),
           reportDate: report.displayCreatedAt || '',
+          employee,
           code: card.code || `card-${index + 1}`,
           title,
           cultureLine: [card.cultureName, card.speciesName, card.varietyName].filter(Boolean).join(' · ') || 'Без названия',
@@ -546,6 +549,39 @@ function buildStageTabs(cards, selectedStage) {
   }));
 }
 
+function buildEmployeeTabs(cards) {
+  const counts = new Map();
+  const labels = new Map();
+
+  for (const card of Array.isArray(cards) ? cards : []) {
+    const key = resolveJournalEmployee(card.employee);
+    if (!key) {
+      continue;
+    }
+
+    counts.set(key, (counts.get(key) || 0) + 1);
+    if (!labels.has(key)) {
+      labels.set(key, card.employee);
+    }
+  }
+
+  const sortedKeys = [...counts.keys()].sort((left, right) => {
+    const leftLabel = labels.get(left) || left;
+    const rightLabel = labels.get(right) || right;
+    return leftLabel.localeCompare(rightLabel, 'ru');
+  });
+
+  return [
+    { key: 'all', label: 'Все сотрудники', count: cards.length, active: true },
+    ...sortedKeys.map((key) => ({
+      key,
+      label: labels.get(key) || key,
+      count: counts.get(key) || 0,
+      active: false
+    }))
+  ];
+}
+
 function buildSubtabTabs(cards, selectedStage, selectedSubtab) {
   const scopedCards = selectedStage === 'important'
     ? cards.filter((card) => Boolean(card.isImportant))
@@ -809,6 +845,10 @@ function resolveSelectedCardId(value, visibleCards) {
   return '';
 }
 
+function resolveJournalEmployee(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
 function resolveReportTitle(report) {
   if (!report) {
     return 'Журнал';
@@ -816,6 +856,15 @@ function resolveReportTitle(report) {
 
   const userName = report.user && (report.user.displayName || [report.user.firstName, report.user.lastName].filter(Boolean).join(' '));
   return userName || report.reportId || 'Журнал';
+}
+
+function resolveReportEmployee(report) {
+  if (!report) {
+    return 'Неизвестно';
+  }
+
+  const userName = report.user && (report.user.displayName || [report.user.firstName, report.user.lastName].filter(Boolean).join(' ').trim());
+  return userName || report.author || report.userName || 'Неизвестно';
 }
 
 function eventTimestamp(event) {
@@ -891,6 +940,7 @@ module.exports = {
   JOURNAL_STAGE_LABELS,
   JOURNAL_TAB_ORDER,
   JOURNAL_TAB_LABELS,
+  buildEmployeeTabs,
   formatJournalEventTitle,
   formatJournalCardTitle,
   formatJournalDateOnly,

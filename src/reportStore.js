@@ -803,8 +803,11 @@ function normalizePhotoPaths(card, reportId) {
 }
 
 function normalizeEvent(event, index, options = {}) {
-  const reserved = new Set(['eventId', 'createdBy', 'date', 'createdAt', 'type', 'eventType', 'title', 'stage', 'author', 'user', 'userName', 'comment', 'message', 'photoNote', 'problem', 'problemType', 'risk', 'riskLevel', 'quantity', 'count', 'previousQuantity', 'currentQuantity', 'photos', 'photoFiles', 'photoPaths', 'images', 'photoUri', 'photoUris', 'extraFields']);
-  const date = firstString(event, ['date', 'createdAt', 'time', 'timestamp']);
+  const reserved = new Set(['eventId', 'createdBy', 'date', 'createdAt', 'time', 'timestamp', 'type', 'eventType', 'title', 'stage', 'author', 'user', 'userName', 'comment', 'message', 'photoNote', 'problem', 'problemType', 'risk', 'riskLevel', 'quantity', 'count', 'previousQuantity', 'currentQuantity', 'photos', 'photoFiles', 'photoPaths', 'images', 'photoUri', 'photoUris', 'extraFields']);
+  const createdAt = firstString(event, ['createdAt', 'timestamp']) || firstString(event, ['date', 'time']);
+  const date = firstString(event, ['date']) || createdAt;
+  const time = firstString(event, ['time']) || '';
+  const timestamp = firstString(event, ['timestamp']) || '';
   const type = firstString(event, ['type', 'eventType', 'name']) || `Event ${index + 1}`;
   const author = firstString(event, ['author', 'user', 'userName']);
   const createdBy = firstString(event, ['createdBy']) || author || options.fallbackCreatedBy || 'Неизвестно';
@@ -829,6 +832,9 @@ function normalizeEvent(event, index, options = {}) {
     eventId,
     createdBy,
     date,
+    createdAt,
+    time,
+    timestamp,
     type,
     title,
     stage,

@@ -52,7 +52,12 @@
   if (journalRoot) {
     const searchInput = journalRoot.querySelector('[data-journal-search]');
     const stageButtons = Array.from(journalRoot.querySelectorAll('[data-journal-stage]'));
+    const employeeButtons = Array.from(journalRoot.querySelectorAll('[data-journal-employee]'));
     const tabButtons = Array.from(journalRoot.querySelectorAll('[data-journal-tab]'));
+    const tabStrip = journalRoot.querySelector('[data-journal-tab-strip]');
+    const employeeFilter = journalRoot.querySelector('[data-journal-employee-filter]');
+    const employeeFilterToggle = journalRoot.querySelector('[data-journal-employee-filter-toggle]');
+    const employeeFilterMenu = journalRoot.querySelector('[data-journal-employee-filter-menu]');
     const stageFilter = journalRoot.querySelector('[data-journal-stage-filter]');
     const stageFilterToggle = journalRoot.querySelector('[data-journal-stage-filter-toggle]');
     const stageFilterMenu = journalRoot.querySelector('[data-journal-stage-filter-menu]');
@@ -67,9 +72,20 @@
     const state = {
       search: searchInput ? searchInput.value.trim().toLowerCase() : '',
       stage: readInitialValue(stageButtons, 'journalStage'),
+      employee: readInitialValue(employeeButtons, 'journalEmployee'),
       tab: readInitialValue(tabButtons, 'journalTab'),
       selectedCardId: '',
+      employeeFilterOpen: false,
       stageFilterOpen: false
+    };
+
+    const stripDragState = {
+      active: false,
+      dragged: false,
+      suppressClick: false,
+      startX: 0,
+      startScrollLeft: 0,
+      pointerId: null
     };
 
     const setActiveButtons = (buttons, datasetKey, value) => {
@@ -85,13 +101,15 @@
       }
 
       const cardStage = card.dataset.journalCardStage || 'all';
+      const cardEmployee = card.dataset.journalCardEmployee || 'all';
       const cardSearch = card.dataset.journalCardSearch || '';
       const cardSubtypes = (card.dataset.journalCardSubtypes || '').split(/\s+/).filter(Boolean);
       const stageMatches = state.stage === 'all' || (state.stage === 'important' ? card.dataset.journalCardImportant === '1' : cardStage === state.stage);
+      const employeeMatches = state.employee === 'all' || cardEmployee.toLowerCase() === state.employee.toLowerCase();
       const searchMatches = !state.search || cardSearch.includes(state.search);
       const tabMatches = state.tab === 'all' || cardSubtypes.includes(state.tab);
 
-      return stageMatches && searchMatches && tabMatches;
+      return stageMatches && employeeMatches && searchMatches && tabMatches;
     };
 
     const syncSelection = (visibleCards) => {
@@ -124,6 +142,28 @@
       }
     };
 
+    const closeEmployeeFilter = () => {
+      state.employeeFilterOpen = false;
+      if (employeeFilterMenu) {
+        employeeFilterMenu.hidden = true;
+      }
+      if (employeeFilterToggle) {
+        employeeFilterToggle.setAttribute('aria-expanded', 'false');
+      }
+      if (employeeFilter) {
+        employeeFilter.classList.remove('open');
+      }
+    };
+
+    const stopTabStripDrag = () => {
+      stripDragState.active = false;
+      stripDragState.dragged = false;
+      stripDragState.pointerId = null;
+      if (tabStrip) {
+        tabStrip.classList.remove('is-dragging');
+      }
+    };
+
     const openStageFilter = () => {
       state.stageFilterOpen = true;
       if (stageFilterMenu) {
@@ -134,6 +174,19 @@
       }
       if (stageFilter) {
         stageFilter.classList.add('open');
+      }
+    };
+
+    const openEmployeeFilter = () => {
+      state.employeeFilterOpen = true;
+      if (employeeFilterMenu) {
+        employeeFilterMenu.hidden = false;
+      }
+      if (employeeFilterToggle) {
+        employeeFilterToggle.setAttribute('aria-expanded', 'true');
+      }
+      if (employeeFilter) {
+        employeeFilter.classList.add('open');
       }
     };
 
@@ -148,6 +201,7 @@
 
       syncSelection(visibleCards);
       setActiveButtons(stageButtons, 'journalStage', state.stage);
+      setActiveButtons(employeeButtons, 'journalEmployee', state.employee);
       setActiveButtons(tabButtons, 'journalTab', state.tab);
       syncPanels();
 
@@ -165,6 +219,9 @@
       if (stageFilterToggle) {
         stageFilterToggle.setAttribute('aria-expanded', String(state.stageFilterOpen));
       }
+      if (employeeFilterToggle) {
+        employeeFilterToggle.setAttribute('aria-expanded', String(state.employeeFilterOpen));
+      }
     };
 
     if (searchInput) {
@@ -174,16 +231,91 @@
       });
     }
 
+    if (tabStrip) {
+      tabStrip.addEventListener('pointerdown', (event) => {
+        if (event.button !== 0) {
+          return;
+        }
+
+        const target = event.target;
+        if (!(target instanceof Element)) {
+          return;
+        }
+
+        stripDragState.active = true;
+        stripDragState.dragged = false;
+        stripDragState.suppressClick = false;
+        stripDragState.startX = event.clientX;
+        stripDragState.startScrollLeft = tabStrip.scrollLeft;
+        stripDragState.pointerId = event.pointerId;
+      });
+
+      tabStrip.addEventListener('pointermove', (event) => {
+        if (!stripDragState.active || stripDragState.pointerId !== event.pointerId) {
+          return;
+        }
+
+        const deltaX = event.clientX - stripDragState.startX;
+        if (!stripDragState.dragged && Math.abs(deltaX) > 12) {
+          stripDragState.dragged = true;
+          stripDragState.suppressClick = true;
+          tabStrip.classList.add('is-dragging');
+          tabStrip.setPointerCapture(event.pointerId);
+        }
+
+        if (stripDragState.dragged) {
+          event.preventDefault();
+          tabStrip.scrollLeft = stripDragState.startScrollLeft - deltaX;
+        }
+      });
+
+      const endDrag = (event) => {
+        if (!stripDragState.active || stripDragState.pointerId !== event.pointerId) {
+          return;
+        }
+
+        if (stripDragState.dragged && tabStrip.hasPointerCapture(event.pointerId)) {
+          tabStrip.releasePointerCapture(event.pointerId);
+        }
+
+        stopTabStripDrag();
+      };
+
+      tabStrip.addEventListener('pointerup', endDrag);
+      tabStrip.addEventListener('pointercancel', endDrag);
+    }
+
+    if (employeeFilterToggle) {
+      employeeFilterToggle.addEventListener('click', () => {
+        state.employeeFilterOpen = !state.employeeFilterOpen;
+        if (state.employeeFilterOpen) {
+          openEmployeeFilter();
+          closeStageFilter();
+        } else {
+          closeEmployeeFilter();
+        }
+      });
+    }
+
     if (stageFilterToggle) {
       stageFilterToggle.addEventListener('click', () => {
         state.stageFilterOpen = !state.stageFilterOpen;
         if (state.stageFilterOpen) {
           openStageFilter();
+          closeEmployeeFilter();
         } else {
           closeStageFilter();
         }
       });
     }
+
+    employeeButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        state.employee = button.dataset.journalEmployee || 'all';
+        closeEmployeeFilter();
+        updateView();
+      });
+    });
 
     stageButtons.forEach((button) => {
       button.addEventListener('click', () => {
@@ -194,7 +326,15 @@
     });
 
     tabButtons.forEach((button) => {
-      button.addEventListener('click', () => {
+      button.addEventListener('click', (event) => {
+        if (stripDragState.suppressClick) {
+          event.preventDefault();
+          event.stopPropagation();
+          stripDragState.suppressClick = false;
+          stopTabStripDrag();
+          return;
+        }
+
         state.tab = button.dataset.journalTab || 'all';
         closeStageFilter();
         updateView();
@@ -214,20 +354,26 @@
     });
 
     document.addEventListener('click', (event) => {
-      if (!state.stageFilterOpen || !stageFilter) {
+      const target = event.target;
+      const insideStage = stageFilter && stageFilter.contains(target);
+      const insideEmployee = employeeFilter && employeeFilter.contains(target);
+
+      if (!state.stageFilterOpen && !state.employeeFilterOpen) {
         return;
       }
 
-      if (stageFilter.contains(event.target)) {
+      if (insideStage || insideEmployee) {
         return;
       }
 
       closeStageFilter();
+      closeEmployeeFilter();
     });
 
     document.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') {
         closeStageFilter();
+        closeEmployeeFilter();
       }
     });
 
