@@ -1,0 +1,123 @@
+<%- include('partials/head', { pageTitle }) %>
+<% const selected = stages.selectedCard; %>
+<div class="app-shell">
+  <%- include('partials/sidebar', { activePage: 'stages', showDashboardLink }) %>
+
+  <main class="app-main app-main-stages">
+    <section class="batches-page">
+      <div class="batches-layout">
+        <aside class="batches-browser">
+          <div class="batches-browser-head">
+            <div>
+              <h1>Партии</h1>
+            </div>
+            <span class="batches-total"><%= stages.cards.length %></span>
+          </div>
+
+          <div class="batches-toolbar">
+            <form class="batches-search" method="get" action="/stages">
+              <input id="batch-search" name="q" value="<%= stages.search %>" placeholder="По коду, культуре, виду или сорту" autocomplete="off">
+              <% if (stages.selectedStage !== 'all') { %><input type="hidden" name="stage" value="<%= stages.selectedStage %>"><% } %>
+            </form>
+
+            <div class="batches-filter" data-batches-filter>
+              <button type="button" class="batches-filter-toggle" data-batches-filter-toggle aria-expanded="false">
+                <span>Фильтр</span>
+              </button>
+            <nav class="batches-filter-menu" data-batches-filter-menu hidden aria-label="Фильтр по стадиям">
+              <% stages.stages.forEach((item) => { %>
+                <a class="batches-stage-filter-item <%= stages.selectedStage === item.key ? 'active' : '' %>" href="/stages?stage=<%= encodeURIComponent(item.key) %><%= stages.search ? '&q=' + encodeURIComponent(stages.search) : '' %>">
+                  <span><%= item.label %></span>
+                  <strong><%= item.count %></strong>
+                </a>
+              <% }) %>
+            </nav>
+            </div>
+          </div>
+          <h2 class="batches-selected-stage-title"><%= stages.stages.find((item) => item.key === stages.selectedStage).label %></h2>
+
+          <div class="batches-list" aria-label="Список партий">
+            <% if (stages.cards.length) { %>
+              <% stages.cards.forEach((card) => { %>
+                <a class="batch-list-card <%= selected && selected.batchKey === card.batchKey ? 'active' : '' %>" href="/stages?batchId=<%= encodeURIComponent(card.batchKey) %>&stage=<%= encodeURIComponent(stages.selectedStage) %><%= stages.search ? '&q=' + encodeURIComponent(stages.search) : '' %>">
+                  <span class="batch-list-status batch-status-<%= card.status.toLowerCase().replace(/[^a-zа-я]+/gi, '-') %>"></span>
+                  <span class="batch-list-copy">
+                    <strong><%= card.title %></strong>
+                    <small><%= card.code %> · <%= card.stage %></small>
+                    <small><%= card.currentQuantity || '—' %> шт. · <%= card.updatedAt ? new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(card.updatedAt)) : '—' %></small>
+                  </span>
+                </a>
+              <% }) %>
+            <% } else { %>
+              <div class="empty-state batches-empty-list"><h2>Партии не найдены</h2><p>Измените поиск или стадию.</p></div>
+            <% } %>
+          </div>
+        </aside>
+
+        <section class="batch-detail-shell">
+          <% if (!selected) { %>
+            <div class="batch-empty-state">
+              <div class="batch-empty-icon">🌿</div>
+              <h2>Выберите партию слева</h2>
+              <p>Здесь появятся календарь, паспорт и журнал выбранной партии.</p>
+            </div>
+          <% } else { %>
+            <header class="batch-detail-header">
+              <div>
+                <p class="eyebrow"><%= selected.code %></p>
+                <h2><%= selected.title %></h2>
+                <div class="batch-detail-meta">
+                  <span class="status-dot status-dot-active"></span><strong><%= selected.status %></strong>
+                  <span><%= selected.stage %></span>
+                  <span><%= selected.currentQuantity || '—' %> из <%= selected.initialQuantity || selected.currentQuantity || '—' %> шт.</span>
+                  <% if (selected.location) { %><span><%= selected.location %></span><% } %>
+                </div>
+              </div>
+              <div class="batch-detail-updated">Последнее изменение<br><strong><%= new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: 'long', year: 'numeric' }).format(new Date(selected.updatedAt)) %></strong></div>
+            </header>
+
+            <nav class="batch-tabs" aria-label="Разделы партии">
+              <a class="active" href="#calendar">Календарь</a>
+              <a href="#passport">Паспорт</a>
+              <a href="#journal">Журнал</a>
+            </nav>
+
+            <div class="batch-detail-content">
+              <section class="batch-tab-panel" id="calendar">
+                <div class="detail-section-head"><div><p class="eyebrow">События партии</p><h3>Календарь</h3></div><span class="batch-event-count"><%= selected.events.length %> событий</span></div>
+                <% if (selected.events.length) { %>
+                  <div class="batch-calendar-list">
+                    <% selected.events.slice().reverse().forEach((event) => { %>
+                      <article class="batch-calendar-event">
+                        <time><%= event.createdAt ? new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit' }).format(new Date(event.createdAt)) : '—' %></time>
+                        <div><strong><%= event.title %></strong><p><%= event.comment || event.photoNote || (event.count ? `Количество: ${event.count} шт.` : 'Без дополнительной информации') %></p></div>
+                      </article>
+                    <% }) %>
+                  </div>
+                <% } else { %><div class="empty-state"><h3>Событий пока нет</h3><p>Для этой партии календарь пуст.</p></div><% } %>
+              </section>
+
+              <section class="batch-tab-panel" id="passport">
+                <div class="detail-section-head"><div><p class="eyebrow">Данные report.json</p><h3>Паспорт</h3></div></div>
+                <div class="passport-grid">
+                  <article><h4>Сводка</h4><dl><dt>Статус партии</dt><dd><%= selected.status %></dd><dt>Исходное количество</dt><dd><%= selected.initialQuantity || '—' %> шт.</dd><dt>Текущий остаток</dt><dd><%= selected.currentQuantity || '—' %> шт.</dd></dl></article>
+                  <article><h4>Культура</h4><dl><dt>Культура</dt><dd><%= selected.culture || '—' %></dd><dt>Вид</dt><dd><%= selected.species || '—' %></dd><dt>Сорт</dt><dd><%= selected.variety || '—' %></dd></dl></article>
+                  <article><h4>Размещение</h4><dl><dt>Местоположение</dt><dd><%= selected.location || '—' %></dd></dl></article>
+                  <article><h4>Служебная информация</h4><dl><dt>Код партии</dt><dd><%= selected.code %></dd><dt>Создана</dt><dd><%= selected.createdAt ? new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(selected.createdAt)) : '—' %></dd></dl></article>
+                </div>
+              </section>
+
+              <section class="batch-tab-panel" id="journal">
+                <div class="detail-section-head"><div><p class="eyebrow">Хронология</p><h3>Журнал</h3></div></div>
+                <div class="batch-journal-list">
+                  <% selected.events.forEach((event) => { %><article><time><%= event.createdAt ? new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(event.createdAt)) : '—' %></time><div><strong><%= event.title %></strong><p><%= event.comment || event.photoNote || '' %></p><small><%= event.type %></small></div></article><% }) %>
+                </div>
+              </section>
+            </div>
+          <% } %>
+        </section>
+      </div>
+    </section>
+  </main>
+</div>
+<%- include('partials/footer') %>

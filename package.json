@@ -6,7 +6,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node tests/journalModel.test.js",
+    "test": "node tests/journalModel.test.js && node tests/stagesPageModel.test.js",
     "clear:reports": "node scripts/clear-reports.js"
   },
   "dependencies": {

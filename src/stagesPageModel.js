@@ -1,0 +1,157 @@
+const STAGE_ORDER = [
+  'Введение в культуру',
+  'Клонирование',
+  'Адаптация',
+  'Теплица',
+  'Закалка',
+  'Высадка'
+];
+
+const STAGE_LABELS = Object.fromEntries(STAGE_ORDER.map((stage) => [stage, stage]));
+
+function buildStagesPageModel(reports = [], query = {}) {
+  const cards = buildBatchCatalog(reports);
+  const search = String(query.q || '').trim();
+  const requestedStage = String(query.stage || '').trim();
+  const stage = requestedStage === 'all' || STAGE_ORDER.includes(requestedStage) ? (requestedStage || 'all') : 'all';
+  const filteredCards = cards.filter((card) => {
+    const matchesStage = !stage || stage === 'all' || card.stage === stage;
+    const matchesSearch = !search || card.searchText.includes(search.toLowerCase());
+    return matchesStage && matchesSearch;
+  });
+  const requestedBatchKey = String(query.batchId || '').trim();
+  const requestedCardId = String(query.cardId || '').trim();
+  const selectedCard = filteredCards.find((card) => card.batchKey === requestedBatchKey)
+    || (!requestedBatchKey && filteredCards.find((card) => card.cardId === requestedCardId))
+    || null;
+
+  return {
+    pageTitle: 'Партии',
+    search,
+    selectedStage: stage || 'all',
+    selectedCardId: selectedCard ? selectedCard.cardId : '',
+    selectedBatchKey: selectedCard ? selectedCard.batchKey : '',
+    cards: filteredCards,
+    selectedCard,
+    stages: [
+      { key: 'all', label: 'Все партии', count: cards.length },
+      ...STAGE_ORDER.map((key) => ({
+        key,
+        label: STAGE_LABELS[key],
+        count: cards.filter((card) => card.stage === key).length
+      }))
+    ]
+  };
+}
+
+function buildBatchCatalog(reports) {
+  const byKey = new Map();
+  for (const report of Array.isArray(reports) ? reports : []) {
+    const rawCards = Array.isArray(report && report.raw && report.raw.cards)
+      ? report.raw.cards
+      : Array.isArray(report && report.cards) ? report.cards : [];
+    rawCards.forEach((rawCard, index) => {
+      const parsedCard = report.cards && report.cards[index] ? report.cards[index] : {};
+      const cardId = String(rawCard.cardId || parsedCard.cardId || rawCard.code || parsedCard.code || `${report.reportId}-${index + 1}`);
+      const normalized = normalizeCard(rawCard, parsedCard, report, index);
+      const existing = byKey.get(normalized.batchKey);
+      if (!existing || normalized.snapshotAt >= existing.snapshotAt) {
+        byKey.set(normalized.batchKey, {
+          ...(existing || {}),
+          ...normalized,
+          events: deduplicateEvents([...(existing ? existing.events : []), ...normalized.events])
+        });
+      } else {
+        existing.events = deduplicateEvents([...existing.events, ...normalized.events]);
+      }
+    });
+  }
+  return [...byKey.values()]
+    .map((card) => ({ ...card, events: card.events.sort((a, b) => eventTime(b) - eventTime(a)) }))
+    .sort((a, b) => a.title.localeCompare(b.title, 'ru'));
+}
+
+function normalizeCard(raw, parsed, report, index) {
+  const titleParts = [raw.cultureName || parsed.culture, raw.speciesName, raw.varietyName || parsed.variety || parsed.sort].filter(Boolean);
+  const events = Array.isArray(raw.events) ? raw.events : Array.isArray(parsed.events) ? parsed.events : [];
+  const snapshotAt = eventTime(raw.updatedAt || raw.createdAt || parsed.date || report.createdAt);
+  const currentQuantity = raw.currentQuantity ?? raw.currentCount ?? raw.remainingCount ?? parsed.currentCount ?? raw.quantity ?? parsed.initialCount;
+  const initialQuantity = raw.initialQuantity ?? raw.initialCount ?? raw.quantity ?? parsed.initialCount;
+  const stage = String(raw.stage || parsed.stage || '').trim() || 'Без стадии';
+  const status = String(raw.batchStatus || raw.status || parsed.status || 'Не указан').trim();
+  const location = raw.locationDescription || raw.location || raw.place || parsed.location || '';
+  const code = String(raw.code || parsed.code || `card-${index + 1}`);
+  const cardId = String(raw.cardId || parsed.cardId || code);
+  const deviceId = String(report.deviceId || '').trim();
+  const batchKey = buildBatchKey(deviceId, cardId, report.reportId);
+  const eventList = events.map((event) => normalizeEvent(event, report.reportId));
+
+  return {
+    cardId,
+    batchKey,
+    deviceId,
+    code,
+    title: titleParts.length ? titleParts.join(' · ') : code,
+    culture: raw.cultureName || parsed.culture || '',
+    species: raw.speciesName || '',
+    variety: raw.varietyName || parsed.variety || parsed.sort || '',
+    stage,
+    status,
+    currentQuantity,
+    initialQuantity,
+    location,
+    createdAt: raw.createdAt || report.createdAt,
+    updatedAt: raw.updatedAt || raw.createdAt || report.createdAt,
+    snapshotAt,
+    reportId: report.reportId,
+    events: eventList,
+    photoFiles: uniqueStrings([...(raw.photoFiles || []), ...(raw.photos || [])]),
+    searchText: [cardId, code, deviceId, ...titleParts, stage, status, location].join(' ').toLowerCase()
+  };
+}
+
+function buildBatchKey(deviceId, cardId, reportId) {
+  const source = deviceId || `report:${String(reportId || 'unknown-report').trim()}`;
+  // The key is placed in the URL as batchId, so it must not contain control characters.
+  return `${source}::${String(cardId || '').trim()}`.toLowerCase();
+}
+
+function normalizeEvent(event, reportId) {
+  const photos = uniqueStrings([...(event.photoFiles || []), ...(event.photos || []), ...(event.photoPaths || [])]);
+  return {
+    eventId: String(event.eventId || `${reportId}-${event.createdAt || event.date || event.type}`),
+    title: String(event.title || event.type || 'Событие'),
+    type: String(event.type || ''),
+    createdAt: event.createdAt || event.date || event.timestamp || '',
+    count: event.currentQuantity ?? event.count ?? event.quantity ?? '',
+    previousQuantity: event.previousQuantity ?? '',
+    comment: event.comment || event.message || '',
+    photoNote: event.photoNote || '',
+    extraFields: event.extraFields && typeof event.extraFields === 'object' ? event.extraFields : {},
+    photos
+  };
+}
+
+function deduplicateEvents(events) {
+  const seen = new Map();
+  for (const event of events) {
+    if (!seen.has(event.eventId)) seen.set(event.eventId, event);
+  }
+  return [...seen.values()];
+}
+
+function uniqueStrings(values) {
+  return [...new Set((Array.isArray(values) ? values : []).filter((value) => typeof value === 'string' && value.trim()))];
+}
+
+function eventTime(value) {
+  const time = new Date(value || 0).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+function formatDate(value) {
+  const time = eventTime(value);
+  return time ? new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(time)) : '—';
+}
+
+module.exports = { buildStagesPageModel, buildBatchCatalog, deduplicateEvents, STAGE_ORDER, STAGE_LABELS, formatDate };
