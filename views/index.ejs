@@ -116,7 +116,7 @@
           <section class="dashboard-stats dashboard-stats-top" aria-label="Основные показатели">
             <% dashboard.topMetrics.forEach((metric) => { %>
               <% const tag = metric.href ? 'a' : 'article'; %>
-              <<%= tag %> class="dashboard-stat dashboard-stat-<%= metric.tone %>" <%= metric.href ? `href="${metric.href}"` : '' %>>
+              <<%= tag %> class="dashboard-stat dashboard-stat-<%= metric.tone %>" <%- metric.href ? `href="${metric.href}"` : '' %>>
                 <span class="dashboard-stat-icon"><%- metricIcon(metric.key) %></span>
                 <span class="dashboard-stat-label"><%= metric.label %></span>
                 <strong><%= metric.value %></strong>
@@ -136,27 +136,18 @@
                   <% dashboard.recentEvents.forEach((event) => { %>
                     <% const eventUrl = event.cardId ? `/stages?cardId=${encodeURIComponent(event.cardId)}&tab=journal${event.eventId ? `&eventId=${encodeURIComponent(event.eventId)}` : ''}#journal` : ''; %>
                     <% const eventIsAttention = ['problem', 'quarantine', 'contamination', 'greenhousedisease'].includes(event.type) || event.problem || event.risk; %>
-                    <% const eventRowClass = `dashboard-event-row${eventIsAttention ? ' dashboard-event-row-attention' : ''}`; %>
+                    <% const eventRowClass = `dashboard-simple-event-row${eventIsAttention ? ' dashboard-simple-event-row-attention' : ''}`; %>
                     <% if (eventUrl) { %>
                       <a class="<%= eventRowClass %>" href="<%= eventUrl %>" aria-label="Открыть событие «<%= event.title %>» партии <%= event.code %>">
                     <% } else { %>
                       <article class="<%= eventRowClass %>">
                     <% } %>
-                      <div class="dashboard-event-head">
-                        <div class="dashboard-event-heading-main">
+                      <div class="dashboard-simple-event-head">
+                        <div class="dashboard-simple-event-top">
                           <strong class="dashboard-event-title"><%= event.title %></strong>
-                          <div class="dashboard-event-context">
-                            <span class="dashboard-event-culture"><%= event.culture %></span>
-                            <span class="dashboard-event-batch"><%= event.code %></span>
-                            <span class="dashboard-event-stage"><%= event.stage %></span>
-                          </div>
-                        </div>
-                        <div class="dashboard-event-meta">
-                          <span><%= event.createdBy %></span>
-                          <time><%= event.timestamp ? new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: 'long', timeZone: dashboardTimeZone }).format(new Date(event.timestamp)) : 'Дата не указана' %><%= event.timestamp ? ` • ${new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: dashboardTimeZone }).format(new Date(event.timestamp))}` : '' %></time>
+                          <span class="dashboard-simple-event-meta"><time><%= event.timestamp ? new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: 'long', timeZone: dashboardTimeZone }).format(new Date(event.timestamp)) : 'Дата не указана' %><%= event.timestamp ? ` • ${new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: dashboardTimeZone }).format(new Date(event.timestamp))}` : '' %></time><%= event.createdBy ? ` • ${event.createdBy}` : '' %></span>
                         </div>
                       </div>
-                      <div class="dashboard-event-divider" aria-hidden="true"></div>
                       <div class="dashboard-event-main">
                         <div class="dashboard-event-copy">
                           <% const details = eventDetails(event); %>
@@ -168,6 +159,12 @@
                             </div>
                           <% } %>
                         </div>
+                      </div>
+                      <div class="dashboard-event-divider dashboard-simple-event-divider" aria-hidden="true"></div>
+                      <div class="dashboard-simple-event-context">
+                        <span><%= event.culture %></span>
+                        <span><%= event.code %></span>
+                        <span><%= event.stage %></span>
                       </div>
                     <% if (eventUrl) { %></a><% } else { %></article><% } %>
                   <% }) %>
@@ -182,9 +179,32 @@
               <% if (dashboard.attentionBatches.length) { %>
                 <div class="dashboard-attention-list">
                   <% dashboard.attentionBatches.forEach((batch) => { %>
-                    <a href="/stages?batchId=<%= encodeURIComponent(batch.batchKey) %>" class="dashboard-attention-row">
-                      <div><strong><%= batch.title %></strong><span><%= batch.code %> · <%= batch.stage %></span></div>
-                      <div><b><%= batch.statusLabel %></b><span><%= batch.reason %> · риск: <%= batch.risk %></span><small><%= batch.latestProblemLabel %><%= batch.daysWithoutUpdate !== null ? ` · ${batch.daysWithoutUpdate} дн. без нового события` : '' %></small></div>
+                    <% const problemEvent = batch.latestProblemEvent || { type: 'problem', title: batch.latestProblemTitle || batch.reason, culture: batch.title, code: batch.code, stage: batch.stage, createdBy: batch.latestProblemAuthor || '', timestamp: batch.latestProblemAt, problem: batch.reason, risk: batch.risk, problemDescription: batch.problemDescription }; %>
+                    <a href="/stages?batchId=<%= encodeURIComponent(batch.batchKey) %>" class="dashboard-simple-event-row dashboard-simple-event-row-attention" aria-label="Открыть событие «<%= problemEvent.title %>» партии <%= problemEvent.code %>">
+                      <div class="dashboard-simple-event-head">
+                        <div class="dashboard-simple-event-top">
+                          <strong class="dashboard-event-title"><%= problemEvent.title %></strong>
+                          <span class="dashboard-simple-event-meta"><time><%= problemEvent.timestamp ? new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: 'long', timeZone: dashboardTimeZone }).format(new Date(problemEvent.timestamp)) : 'Дата не указана' %><%= problemEvent.timestamp ? ` • ${new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: dashboardTimeZone }).format(new Date(problemEvent.timestamp))}` : '' %></time><%= problemEvent.createdBy ? ` • ${problemEvent.createdBy}` : '' %></span>
+                        </div>
+                      </div>
+                      <div class="dashboard-event-main">
+                        <div class="dashboard-event-copy">
+                          <% const details = eventDetails(problemEvent); %>
+                          <% if (details.length) { %>
+                            <div class="dashboard-event-details">
+                              <% details.forEach((item) => { %>
+                                <span class="dashboard-event-detail <%= isLongEventDetail(item) ? 'dashboard-event-detail-wide' : '' %>"><%= item %></span>
+                              <% }) %>
+                            </div>
+                          <% } %>
+                        </div>
+                      </div>
+                      <div class="dashboard-event-divider dashboard-simple-event-divider" aria-hidden="true"></div>
+                      <div class="dashboard-simple-event-context">
+                        <span><%= problemEvent.culture %></span>
+                        <span><%= problemEvent.code %></span>
+                        <span><%= problemEvent.stage %></span>
+                      </div>
                     </a>
                   <% }) %>
                 </div>

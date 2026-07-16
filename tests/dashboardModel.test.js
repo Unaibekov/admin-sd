@@ -63,6 +63,25 @@ run('filters event metrics by period while preserving current batch states', () 
   assert.equal(dashboard.recentEvents.length, 3);
 });
 
+run('builds journal links for dashboard metrics with matching filters', () => {
+  const now = '2026-07-16T09:00:00.000Z';
+  const reports = [report('today', now, [{
+    cardId: 'card-1',
+    code: 'TP-1',
+    stage: 'РўРµРїР»РёС†Р°',
+    batchStatus: 'quarantine',
+    currentQuantity: 42,
+    updatedAt: now,
+    events: [{ eventId: 'loss-today', type: 'death', count: 4, date: now, createdBy: 'today-user' }]
+  }])];
+  const dashboard = buildDashboard(reports, reports[0], reports, { period: 'today' });
+  const hrefByKey = Object.fromEntries(dashboard.topMetrics.map((metric) => [metric.key, metric.href || '']));
+
+  assert.equal(hrefByKey.attention, '/journal?period=today&category=problems&quick=important');
+  assert.equal(hrefByKey.quarantine, '/journal?period=today&category=problems&quick=quarantine');
+  assert.equal(hrefByKey.losses, '/journal?period=today&category=losses');
+});
+
 run('uses report employee name for local app user events', () => {
   const reports = [{
     reportId: 'real-app-report',
@@ -246,6 +265,9 @@ run('uses problem type, risk level and description from event fields', () => {
   }])];
 
   const dashboard = buildDashboard(reports, reports[0], reports, { period: 'all' });
+  assert.equal(dashboard.attentionBatches[0].latestProblemTitle, 'Карантин');
+  assert.equal(dashboard.attentionBatches[0].latestProblemAuthor, 'problem-user');
+  assert.equal(dashboard.attentionBatches[0].latestProblemEvent.problemDescription, 'Максимальный карантин');
   assert.equal(dashboard.recentEvents[0].title, 'Карантин');
   assert.equal(dashboard.recentEvents[0].problem, 'Карантин');
   assert.equal(dashboard.recentEvents[0].risk, 'Критический');

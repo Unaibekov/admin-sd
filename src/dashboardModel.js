@@ -39,8 +39,9 @@ function buildDashboard(reports = [], selectedReport = null, reportModels = [], 
   const recentPhotos = getRecentPhotos(periodEvents);
   const productionMetrics = getProductionMetrics(periodEvents);
   const recentEvents = periodEvents.filter(isUserInitiatedEvent).sort(byNewest);
+  const journalBaseQuery = buildJournalQuery(period, query);
 
-  return {
+  const dashboard = {
     hasReports: reports.length > 0,
     hasCards: batches.length > 0,
     reportsCount: reports.length,
@@ -70,6 +71,41 @@ function buildDashboard(reports = [], selectedReport = null, reportModels = [], 
     quarantineCount: current.quarantineBatches,
     lossCount: productionMetrics.losses ? productionMetrics.losses.value : 0
   };
+  dashboard.topMetrics = dashboard.topMetrics.map((metric) => ({
+    ...metric,
+    href: resolveTopMetricHref(metric, journalBaseQuery)
+  }));
+  return dashboard;
+}
+
+function resolveTopMetricHref(metric, baseQuery) {
+  if (!metric || !metric.key) return metric && metric.href ? metric.href : '';
+  if (metric.key === 'active') return '/stages';
+  if (metric.key === 'attention') return buildJournalHref(baseQuery, { category: 'problems', quick: 'important' });
+  if (metric.key === 'quarantine') return buildJournalHref(baseQuery, { category: 'problems', quick: 'quarantine' });
+  if (metric.key === 'losses') return buildJournalHref(baseQuery, { category: 'losses' });
+  return metric.href || '';
+}
+
+function buildJournalQuery(period, query = {}) {
+  const params = {};
+  if (period && period.key && period.key !== 'all') params.period = period.key;
+  if (period && period.key === 'custom') {
+    const dateFrom = String(query.dateFrom || '').trim();
+    const dateTo = String(query.dateTo || '').trim();
+    if (dateFrom) params.dateFrom = dateFrom;
+    if (dateTo) params.dateTo = dateTo;
+  }
+  return params;
+}
+
+function buildJournalHref(baseQuery = {}, extraQuery = {}) {
+  const params = new URLSearchParams();
+  Object.entries({ ...baseQuery, ...extraQuery }).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') params.set(key, String(value));
+  });
+  const query = params.toString();
+  return query ? `/journal?${query}` : '/journal';
 }
 
 function getLatestBatchSnapshots(reports = []) {
@@ -240,6 +276,9 @@ function getAttentionBatches(batches = [], events = []) {
       risk: risk ? formatRisk(risk) : 'Не указан',
       riskKey: risk,
       latestProblemAt: problemAt,
+      latestProblemTitle: latestProblem && latestProblem.title ? latestProblem.title : reason,
+      latestProblemAuthor: latestProblem && latestProblem.createdBy ? latestProblem.createdBy : 'Автор не указан',
+      latestProblemEvent: latestProblem ? { ...latestProblem, title: latestProblem.title || reason } : null,
       latestProblemLabel: formatDateTime(problemAt),
       daysWithoutUpdate: problemAt ? Math.max(0, Math.floor((Date.now() - problemAt) / 86400000)) : null,
       priority,
