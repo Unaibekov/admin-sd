@@ -1,4 +1,4 @@
-<aside class="sidebar">
+﻿<aside class="sidebar">
   <div class="sidebar-brand-block">
     <a class="sidebar-brand" href="/">
       <span class="sidebar-brand-mark">S</span>
@@ -14,50 +14,42 @@
   <nav class="sidebar-nav" aria-label="Основная навигация">
     <% if (showDashboardLink) { %>
       <a class="sidebar-item <%= activePage === 'dashboard' ? 'active' : '' %>" href="/">
-        <span class="sidebar-item-icon">◷</span>
+        <span class="sidebar-item-icon">🏠</span>
         <span>Главная</span>
       </a>
     <% } else { %>
       <a class="sidebar-item active" href="/">
-        <span class="sidebar-item-icon">◷</span>
-      <span>Главная</span>
+        <span class="sidebar-item-icon">🏠</span>
+        <span>Главная</span>
       </a>
     <% } %>
-    <a class="sidebar-item <%= activePage === 'reports' ? 'active' : '' %>" href="/reports">
-      <span class="sidebar-item-icon">▤</span>
-      <span>Отчеты</span>
+    <a class="sidebar-item <%= activePage === 'stages' ? 'active' : '' %>" href="/stages">
+      <span class="sidebar-item-icon">🌿</span>
+      <span>Партии</span>
     </a>
     <a class="sidebar-item <%= activePage === 'journal' ? 'active' : '' %>" href="/journal">
-      <span class="sidebar-item-icon">◷</span>
+      <span class="sidebar-item-icon">🕒</span>
       <span>Журнал</span>
     </a>
+    <a class="sidebar-item <%= activePage === 'reports' ? 'active' : '' %>" href="/reports">
+      <span class="sidebar-item-icon">📄</span>
+      <span>Отчеты</span>
+    </a>
     <span class="sidebar-item">
-      <span class="sidebar-item-icon">▦</span>
-      <span>Карточки</span>
-    </span>
-    <span class="sidebar-item">
-      <span class="sidebar-item-icon">△</span>
+      <span class="sidebar-item-icon">⚠️</span>
       <span>Проблемы</span>
     </span>
     <span class="sidebar-item">
-      <span class="sidebar-item-icon">✿</span>
-      <span>Культуры</span>
-    </span>
-    <span class="sidebar-item">
-      <span class="sidebar-item-icon">▤</span>
-      <span>Стадии</span>
-    </span>
-    <span class="sidebar-item">
-      <span class="sidebar-item-icon">◫</span>
+      <span class="sidebar-item-icon">👥</span>
       <span>Пользователи</span>
     </span>
     <span class="sidebar-item">
-      <span class="sidebar-item-icon">⇪</span>
-      <span>Экспорт данных</span>
+      <span class="sidebar-item-icon">⚙️</span>
+      <span>Настройки</span>
     </span>
     <span class="sidebar-item">
-      <span class="sidebar-item-icon">⚙</span>
-      <span>Настройки</span>
+      <span class="sidebar-item-icon">⬇️</span>
+      <span>Экспорт</span>
     </span>
     <form action="/admin/reports/clear" method="post" class="sidebar-clear-form" onsubmit="return confirm('Очистить все отчеты? Это действие нельзя отменить.');">
       <button type="submit" class="sidebar-item sidebar-item-danger">

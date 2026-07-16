@@ -172,10 +172,9 @@ function normalizeEntry(card, event, index) {
     stage,
     createdBy: firstValue(event && [event.createdBy, event.author, event.user, event.userName]) || firstValue(card && [card.author, card.user, card.userName]) || 'Неизвестно',
     type: firstValue(event && [event.title, event.type, event.eventType, event.name]) || 'Событие',
-    date: firstValue(event && [event.date, event.createdAt, event.time, event.timestamp]) || firstValue(card && [card.updatedAt, card.createdAt, card.date]),
+    date: firstValue(event && [event.createdAt, event.timestamp, event.time, event.date]) || firstValue(card && [card.updatedAt, card.createdAt, card.date]),
     createdAt: firstValue(event && [event.createdAt, event.date, event.time, event.timestamp, card && card.updatedAt, card && card.createdAt, card && card.date]),
     comment: firstValue(event && [event.comment, event.message, event.text, event.details]),
-    photoNote: firstValue(event && [event.photoNote]),
     photos: normalizePhotos(event),
     problemType: firstValue(event && [event.problemType, event.problem]),
     riskLevel: firstValue(event && [event.riskLevel, event.risk]),
@@ -189,7 +188,7 @@ function normalizeEntry(card, event, index) {
   const delta = numericDelta(entry.previousQuantity, entry.currentQuantity);
   const subtype = classifyJournalSubtype(entry, stage);
   const hasPhotos = entry.photos.length > 0;
-  const isProblem = Boolean(entry.problemType || entry.riskLevel || looksProblemLike(entry.type, entry.comment, entry.photoNote));
+  const isProblem = Boolean(entry.problemType || entry.riskLevel || looksProblemLike(entry.type, entry.comment));
 
   return {
     ...entry,
@@ -208,7 +207,6 @@ function classifyJournalSubtype(entry, stage) {
   const haystack = [
     entry.type,
     entry.comment,
-    entry.photoNote,
     entry.problemType,
     entry.riskLevel
   ]
@@ -216,7 +214,7 @@ function classifyJournalSubtype(entry, stage) {
     .join(' ')
     .toLowerCase();
 
-  if (looksProblemLike(entry.type, entry.comment, entry.photoNote, entry.problemType, entry.riskLevel)) {
+  if (looksProblemLike(entry.type, entry.comment, entry.problemType, entry.riskLevel)) {
     return 'problems';
   }
 

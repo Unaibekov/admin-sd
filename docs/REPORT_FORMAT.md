@@ -118,7 +118,6 @@
 - `createdAt`
 - `createdBy`
 - `comment`
-- `photoNote`
 - `photoFiles`
 - `problemType`
 - `riskLevel`

@@ -30,7 +30,6 @@
 - `sourceMaterial`
 - `parentBatch`
 - `locationDescription`
-- `startPhotoNote`
 - `startPhotoUri`
 - `startPhotoUris`
 - `cancelledAt`
@@ -71,7 +70,6 @@
 - `updatedAt`
 - `updatedBy`
 - `comment`
-- `photoNote`
 - `photoUri`
 - `photoUris`
 - `count`
@@ -195,7 +193,6 @@
 - `createdAt`
 - `createdBy`
 - `comment`
-- `photoNote`
 - `photoFiles`
 - `problemType`
 - `riskLevel`

@@ -1,4 +1,4 @@
-const JOURNAL_STAGE_ORDER = [
+const STAGES = [
   'Введение в культуру',
   'Клонирование',
   'Адаптация',
@@ -7,945 +7,419 @@ const JOURNAL_STAGE_ORDER = [
   'Высадка'
 ];
 
-const JOURNAL_STAGE_LABELS = {
-  all: 'Все стадии',
-  important: 'Важное',
-  'Введение в культуру': 'Введение в культуру',
-  'Клонирование': 'Клонирование',
-  'Адаптация': 'Адаптация',
-  'Теплица': 'Теплица',
-  'Закалка': 'Закалка',
-  'Высадка': 'Высадка'
-};
-
-const JOURNAL_STAGE_TAB_ORDER = ['all', 'important', ...JOURNAL_STAGE_ORDER];
-
-const JOURNAL_SUBTAB_ORDER = [
-  'all',
-  'problems',
-  'movement',
-  'losses',
-  'sales',
-  'rooting',
-  'propagation',
-  'observation',
-  'care',
-  'transplant',
-  'planting',
-  'completion'
+const CATEGORY_DEFINITIONS = [
+  ['all', 'Все события'],
+  ['observation', 'Наблюдения'],
+  ['care', 'Уход'],
+  ['problems', 'Проблемы'],
+  ['movement', 'Перемещения'],
+  ['losses', 'Потери'],
+  ['sales', 'Продажи'],
+  ['rooting', 'Укоренение'],
+  ['propagation', 'Размножение'],
+  ['transplant', 'Пересадка'],
+  ['planting', 'Высадка'],
+  ['completion', 'Завершение']
 ];
 
-const JOURNAL_STAGE_TAB_LABELS = {
-  all: 'Все стадии',
-  important: 'Важное',
-  'Введение в культуру': 'Введение в культуру',
-  'Клонирование': 'Клонирование',
-  'Адаптация': 'Адаптация',
-  'Теплица': 'Теплица',
-  'Закалка': 'Закалка',
-  'Высадка': 'Высадка'
-};
-
-const JOURNAL_SUBTAB_LABELS = {
-  all: 'Все',
-  problems: 'Проблемы',
-  movement: 'Перемещения',
-  losses: 'Потери',
-  sales: 'Продажи',
-  rooting: 'Укоренение',
-  propagation: 'Размножение',
-  observation: 'Наблюдения',
-  care: 'Уход',
-  transplant: 'Пересадка',
-  planting: 'Высадка',
-  completion: 'Завершение'
-};
-
-const JOURNAL_TAB_ORDER = JOURNAL_SUBTAB_ORDER;
-const JOURNAL_TAB_LABELS = JOURNAL_SUBTAB_LABELS;
-
-const JOURNAL_EVENT_CATEGORY_LABELS = {
-  all: 'Все',
-  observation: 'Наблюдения',
-  care: 'Уход',
-  problems: 'Проблемы',
-  movement: 'Перемещения',
-  losses: 'Потери',
-  sales: 'Продажи',
-  photo: 'Фото'
-};
+const CATEGORY_LABELS = Object.fromEntries(CATEGORY_DEFINITIONS);
+const AUTOMATIC_EVENT_TYPES = new Set([
+  'batchcreated',
+  'qrgenerated',
+  'stagesettingsupdated'
+]);
+const REPORT_USER_ALIASES = ['local-user'];
+const UNKNOWN_AUTHOR_VALUES = new Set(['неизвестно', 'unknown', 'unknown-user']);
+const DISPLAY_TIME_ZONE = 'Europe/Moscow';
+const PERIOD_OPTIONS = [
+  ['all', 'Все время'],
+  ['today', 'Сегодня'],
+  ['7d', 'Неделя'],
+  ['30d', 'Месяц'],
+  ['custom', 'Выбрать период']
+];
 
 function buildJournalPageModel(reports = [], query = {}) {
-  const search = String(query.q || '').trim();
-  const stage = resolveJournalStage(query.stage);
-  const tab = resolveJournalTab(query.tab);
-  const cards = buildJournalCards(Array.isArray(reports) ? reports : [], search, stage, tab);
-  const visibleCards = cards.filter((card) => matchesJournalCard(card, search, stage, tab));
+  const allEvents = buildGlobalJournal(reports);
+  const filters = resolveFilters(query);
+  const events = filterJournalEvents(allEvents, filters);
+  const groups = groupEventsByDate(events);
 
   return {
-    cards,
-    search,
-    stage,
-    tab,
-    stageTabs: buildStageTabs(cards, stage),
-    subtabTabs: buildSubtabTabs(cards, stage, tab),
-    employeeTabs: buildEmployeeTabs(cards),
-    totalCards: cards.length,
-    visibleCardsCount: visibleCards.length,
-    selectedCardId: '',
-    selectedCard: null,
-    hasCards: cards.length > 0,
-    hasVisibleCards: visibleCards.length > 0,
-    reportCount: new Set(cards.map((card) => card.reportId)).size
+    events,
+    groups,
+    filters,
+    hasEvents: allEvents.length > 0,
+    hasResults: events.length > 0,
+    periodOptions: PERIOD_OPTIONS.map(([value, label]) => ({ value, label })),
+    employeeOptions: buildEmployeeOptions(allEvents),
+    categoryOptions: CATEGORY_DEFINITIONS.map(([value, label]) => ({ value, label })),
+    stageOptions: ['all', ...STAGES].map((value) => ({ value, label: value === 'all' ? 'Все стадии' : value })),
+    summary: {
+      total: events.length,
+      problems: events.filter((event) => event.category === 'problems').length,
+      losses: events.filter((event) => event.category === 'losses').length,
+      sales: events.filter((event) => event.category === 'sales').length,
+      lostPlants: sumEventQuantity(events, 'losses'),
+      soldPlants: sumEventQuantity(events, 'sales'),
+      photos: events.filter((event) => event.hasPhotos).length
+    }
   };
 }
 
-function buildJournalCards(reports, search, stage, tab) {
-  const sortedCards = reports
-    .flatMap((report) => {
-      const cards = Array.isArray(report.cards) ? report.cards : [];
-      const employee = resolveReportEmployee(report);
+function buildGlobalJournal(reports = []) {
+  const events = [];
+  const employees = buildEmployeeDirectory(reports);
 
-      return cards.map((card, index) => {
-        const events = normalizeJournalEvents(report, card);
-        const lastEvent = events[0] || null;
-        const title = formatJournalCardTitle(card);
-        const eventCategories = unique(events.map((event) => event.category).filter(Boolean));
-        const subtypes = unique(events.map((event) => classifyJournalSubtype(event, card.stage)).filter((subtype) => subtype && subtype !== 'all'));
-        const createdAt = firstValue([card && card.createdAt, card && card.date]) || '';
-        const updatedAt = firstValue([card && card.updatedAt]) || '';
-        const stageChangedAt = firstValue([card && card.extraFields && card.extraFields.stageChangedAt]) || '';
-        const searchText = [
-          title,
-          card.code,
-          card.stage,
-          card.status,
-          card.batchStatus,
-          card.currentQuantity,
-          card.quantity,
-          employee,
-          report.reportId,
-          lastEvent && lastEvent.title,
-          ...events.flatMap((event) => [event.title, event.searchText]),
-        ]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase();
+  for (const report of Array.isArray(reports) ? reports : []) {
+    const cards = Array.isArray(report && report.cards) ? report.cards : [];
+    const rawCards = Array.isArray(report && report.raw && report.raw.cards) ? report.raw.cards : [];
 
-        return {
-          id: card.cardId || `${report.reportId}-${index + 1}`,
-          reportId: report.reportId,
-          reportTitle: resolveReportTitle(report),
-          reportDate: report.displayCreatedAt || '',
-          employee,
-          code: card.code || `card-${index + 1}`,
-          title,
-          cultureLine: [card.cultureName, card.speciesName, card.varietyName].filter(Boolean).join(' · ') || 'Без названия',
-          stage: card.stage || 'Без стадии',
-          status: card.batchStatus || card.status || '',
-          quantity: card.quantity || '',
-          currentQuantity: card.currentQuantity || card.quantity || '',
-          eventCount: events.length,
-          lastEvent,
-          lastEventDate: lastEvent ? formatJournalDateOnly(lastEvent.date || lastEvent.createdAt) : '—',
-          lastEventTime: lastEvent ? formatJournalTime(lastEvent.date || lastEvent.createdAt) : '',
-          hasProblem: events.some((event) => event.category === 'problems'),
-          hasPhoto: events.some((event) => event.category === 'photo' || event.photos.length > 0),
-          hasLoss: events.some((event) => event.category === 'losses'),
-          hasSale: events.some((event) => event.category === 'sales'),
-          isImportant: events.some((event) => event.category === 'problems' || event.category === 'losses' || event.category === 'sales'),
-          searchText,
-          eventCategories,
-          subtypes,
-          createdAt,
-          updatedAt,
-          stageChangedAt,
-          isVisible: matchesJournalCard(
-            {
-              events,
-              stage: card.stage || 'Без стадии',
-              searchText,
-              subtypes,
-              isImportant: events.some((event) => event.category === 'problems' || event.category === 'losses' || event.category === 'sales')
-            },
-            search,
-            stage,
-            tab
-          ),
-          events
-        };
+    cards.forEach((card, cardIndex) => {
+      const rawEvents = Array.isArray(rawCards[cardIndex] && rawCards[cardIndex].events)
+        ? rawCards[cardIndex].events
+        : [];
+      const cardEvents = Array.isArray(card && card.events) ? card.events : [];
+
+      cardEvents.forEach((event, eventIndex) => {
+        const normalizedEvent = normalizeJournalEvent(event, card, report, rawEvents[eventIndex], eventIndex, employees);
+        if (isPlantEvent(normalizedEvent)) events.push(normalizedEvent);
       });
-    })
-    .sort((left, right) => {
-      const leftTime = eventTimestamp(left.lastEvent);
-      const rightTime = eventTimestamp(right.lastEvent);
-      if (leftTime !== rightTime) {
-        return rightTime - leftTime;
-      }
-
-      return String(left.code).localeCompare(String(right.code), 'ru');
     });
+  }
 
-  const uniqueCards = [];
-  const seenCardIds = new Set();
+  return deduplicateEvents(events).sort((left, right) => right.timestamp - left.timestamp);
+}
 
-  sortedCards.forEach((card) => {
-    if (seenCardIds.has(card.id)) {
-      return;
+function deduplicateEvents(events = []) {
+  const uniqueEvents = new Map();
+
+  for (const event of Array.isArray(events) ? events : []) {
+    const key = event.sourceEventId
+      ? `id:${event.sourceEventId}`
+      : `fallback:${event.cardId}|${event.type}|${event.date}|${event.createdBy}|${event.title}|${event.comment}`.toLowerCase();
+    const existing = uniqueEvents.get(key);
+
+    // Snapshots may contain the same event with a newer batch state. Keep the newest source.
+    if (!existing || event.snapshotTimestamp >= existing.snapshotTimestamp) {
+      uniqueEvents.set(key, event);
     }
+  }
 
-    seenCardIds.add(card.id);
-    uniqueCards.push(card);
+  return [...uniqueEvents.values()];
+}
+
+function normalizeJournalEvent(event = {}, card = {}, report = {}, rawEvent = {}, index = 0, employees = new Map()) {
+  const date = firstValue([event.createdAt, event.timestamp, event.time, event.date, card.updatedAt, report.createdAt]);
+  const type = firstValue([event.type, event.eventType, event.name]) || 'unknown';
+  const sourceEventId = firstValue([rawEvent && rawEvent.eventId]);
+  const eventId = sourceEventId || firstValue([event.eventId]) || `${card.cardId || card.code || 'card'}-${index + 1}`;
+  const photos = normalizePhotoUrls(report, event);
+  const category = getEventCategory(event, photos.length > 0);
+  const title = formatJournalEventTitle(event, category);
+  const rawCreatedById = firstValue([event.createdBy, event.author, event.user, event.userName]);
+  const createdById = isUnknownAuthor(rawCreatedById) ? firstValue([report.user && report.user.userId]) : rawCreatedById;
+  const createdBy = employees.get(normalizeText(createdById)) || createdById || firstValue([report.user && report.user.displayName]) || 'Неизвестно';
+  const cardId = String(card.cardId || card.code || '').trim();
+  const culture = [card.cultureName, card.speciesName, card.varietyName].filter(isVisiblePlantPart).join(' · ') || card.code || 'Партия без названия';
+  const stage = firstValue([event.stage, card.stage, card.batchStatus, card.status]) || 'Без стадии';
+  const comment = firstValue([event.comment, event.message, event.text, event.details]);
+  const details = buildEventDetails(event, category);
+  const quantity = getEventQuantity(event);
+
+  return {
+    id: eventId,
+    sourceEventId,
+    cardId,
+    code: firstValue([card.code, card.partyCode, cardId]) || 'Без кода',
+    culture,
+    stage,
+    type,
+    title,
+    category,
+    categoryLabel: CATEGORY_LABELS[category] || title,
+    date,
+    timeLabel: formatJournalTime(date),
+    timestamp: toTimestamp(date),
+    snapshotTimestamp: toTimestamp(firstValue([card.updatedAt, report.createdAt, date])),
+    createdBy,
+    createdById,
+    comment,
+    details,
+    quantity,
+    photos,
+    hasPhotos: photos.length > 0,
+    isImportant: isImportantEvent(event, category),
+    searchText: [cardId, card.code, culture, stage, title, type, createdBy, comment, ...details.flatMap((item) => [item.label, item.value])]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase(),
+    batchUrl: `/stages?cardId=${encodeURIComponent(cardId)}&tab=journal&eventId=${encodeURIComponent(eventId)}#journal`
+  };
+}
+
+function sumEventQuantity(events, category) {
+  return events
+    .filter((event) => event.category === category)
+    .reduce((total, event) => total + event.quantity, 0);
+}
+
+function getEventQuantity(event) {
+  const value = Number(readEventField(event, 'count') || readEventField(event, 'quantity'));
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function isVisiblePlantPart(value) {
+  const text = String(value || '').trim();
+  return text && text.toLowerCase() !== 'отсутствует';
+}
+
+function buildEmployeeDirectory(reports = []) {
+  const employees = new Map();
+  for (const report of Array.isArray(reports) ? reports : []) {
+    const user = report && report.user ? report.user : {};
+    const displayName = firstValue([user.displayName, [user.firstName, user.lastName].filter(Boolean).join(' ')]);
+    for (const identifier of [user.userId, report && report.author, report && report.userName, ...REPORT_USER_ALIASES]) {
+      if (identifier && displayName) employees.set(normalizeText(identifier), displayName);
+    }
+  }
+  return employees;
+}
+
+function getEventCategory(event = {}, hasPhotos = false) {
+  const type = normalizeType(event);
+  if (['observation', 'adaptationstress', 'greenhouseobservation', 'hardeningobservation', 'plantingobservation'].includes(type)) return 'observation';
+  if (['care', 'adaptationcare', 'greenhousecare', 'hardeningcare', 'plantingcare'].includes(type)) return 'care';
+  if (['problem', 'contamination', 'quarantine', 'quarantinereleased', 'greenhousedisease'].includes(type)) return 'problems';
+  if (['movement', 'stagechange', 'statuschange'].includes(type)) return 'movement';
+  if (['introloss', 'loss', 'death', 'discard'].includes(type)) return 'losses';
+  if (type === 'sale') return 'sales';
+  if (type === 'rooting') return 'rooting';
+  if (type === 'propagation') return 'propagation';
+  if (type === 'transplant') return 'transplant';
+  if (type === 'planting') return 'planting';
+  if (type === 'plantingcompletion' || type === 'completion') return 'completion';
+  if (type === 'photo' || type === 'photos' || (hasPhotos && !type)) return 'photo';
+  return 'other';
+}
+
+function isPlantEvent(event) {
+  return !AUTOMATIC_EVENT_TYPES.has(normalizeType(event));
+}
+
+function filterJournalEvents(events = [], filters = {}) {
+  return (Array.isArray(events) ? events : []).filter((event) => {
+    if (!matchesPeriod(event.timestamp, filters)) return false;
+    if (filters.employee !== 'all' && normalizeText(event.createdBy) !== normalizeText(filters.employee)) return false;
+    if (filters.category !== 'all' && event.category !== filters.category) return false;
+    if (filters.stage !== 'all' && normalizeText(event.stage) !== normalizeText(filters.stage)) return false;
+    if (filters.query && !event.searchText.includes(filters.query.toLowerCase())) return false;
+    if (filters.quick === 'important' && !event.isImportant) return false;
+    if (filters.quick === 'problems' && event.category !== 'problems') return false;
+    if (filters.quick === 'losses' && event.category !== 'losses') return false;
+    if (filters.quick === 'sales' && event.category !== 'sales') return false;
+    if (filters.quick === 'photos' && !event.hasPhotos) return false;
+    return true;
+  });
+}
+
+function groupEventsByDate(events = []) {
+  const groups = new Map();
+  for (const event of Array.isArray(events) ? events : []) {
+    const key = event.timestamp ? new Date(event.timestamp).toISOString().slice(0, 10) : 'unknown';
+    if (!groups.has(key)) groups.set(key, { key, label: formatJournalDate(event.date), events: [] });
+    groups.get(key).events.push(event);
+  }
+
+  return [...groups.values()]
+    .sort((left, right) => right.key.localeCompare(left.key))
+    .map((group) => ({ ...group, events: group.events.sort((left, right) => right.timestamp - left.timestamp) }));
+}
+
+function formatJournalDate(value) {
+  const date = toDate(value);
+  if (!date) return 'Дата не указана';
+  return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', year: 'numeric', timeZone: DISPLAY_TIME_ZONE }).format(date);
+}
+
+function formatJournalTime(value) {
+  const date = toDate(value);
+  if (!date) return '—';
+  return new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: DISPLAY_TIME_ZONE }).format(date);
+}
+
+function resolveFilters(query = {}) {
+  const hasRange = Boolean(String(query.dateFrom || '').trim() || String(query.dateTo || '').trim());
+  const period = PERIOD_OPTIONS.some(([value]) => value === query.period) ? query.period : hasRange ? 'custom' : 'all';
+  return {
+    period,
+    dateFrom: String(query.dateFrom || '').trim(),
+    dateTo: String(query.dateTo || '').trim(),
+    employee: String(query.employee || 'all').trim() || 'all',
+    category: CATEGORY_LABELS[query.category] ? String(query.category) : 'all',
+    stage: STAGES.includes(String(query.stage || '').trim()) ? String(query.stage).trim() : 'all',
+    query: String(query.q || '').trim(),
+    quick: ['important', 'problems', 'losses', 'sales', 'photos'].includes(String(query.quick || '')) ? String(query.quick) : 'all'
+  };
+}
+
+function buildEmployeeOptions(events) {
+  return ['all', ...new Set(events.map((event) => event.createdBy).filter((value) => value && value !== 'Неизвестно'))]
+    .map((value) => ({ value, label: value === 'all' ? 'Все сотрудники' : value }));
+}
+
+function matchesPeriod(timestamp, filters) {
+  if (!timestamp) return filters.period === 'all';
+  const now = new Date();
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).getTime();
+  if (filters.period === 'today') return timestamp >= today && timestamp < today + 86400000;
+  if (filters.period === '7d') return timestamp >= today - 6 * 86400000;
+  if (filters.period === '30d') return timestamp >= today - 29 * 86400000;
+  if (filters.period === 'custom') {
+    const from = toTimestamp(filters.dateFrom);
+    const to = toTimestamp(filters.dateTo);
+    if (from && timestamp < from) return false;
+    if (to && timestamp >= to + 86400000) return false;
+  }
+  return true;
+}
+
+function buildEventDetails(event, category) {
+  const get = (key) => readEventField(event, key);
+  const type = normalizeType(event);
+  const items = [];
+  const push = (label, value) => {
+    const text = formatValue(value);
+    if (text && !items.some((item) => item.label === label && item.value === text)) items.push({ label, value: text });
+  };
+
+  if (category === 'losses') {
+    push('Потеряно', withUnits(get('count') || get('quantity')));
+    push('Было', withUnits(get('previousQuantity')));
+    push('Остаток', withUnits(get('currentQuantity')));
+    push('Причина', get('reason') || get('lossReason'));
+  } else if (category === 'sales') {
+    push('Продано', withUnits(get('count') || get('quantity')));
+    push('Было', withUnits(get('previousQuantity')));
+    push('Остаток', withUnits(get('currentQuantity')));
+    push('Получатель', get('recipient'));
+    push('Стоимость', get('saleAmount'));
+  } else if (category === 'propagation') {
+    push('Добавлено', withUnits(get('count') || get('quantity')));
+    push('Было', withUnits(get('previousQuantity')));
+    push('Стало', withUnits(get('currentQuantity')));
+    push('Способ размножения', get('propagationMethod'));
+  } else if (category === 'problems') {
+    push('Тип проблемы', get('problemType') || get('problem'));
+    push('Риск', get('riskLevel') || get('risk'));
+    push('Описание', get('problemDescription') || get('diseaseName') || get('pestName') || get('reason') || get('quarantineReason'));
+  } else if (category === 'movement' || category === 'transplant') {
+    push('Откуда', get('previousLocation'));
+    push('Куда', get('nextLocation'));
+  }
+
+  const fields = [
+    ['Укоренено', 'rootedCount', true], ['Процент укоренения', 'rootingPercent', false, '%'],
+    ['Тип ухода', 'careType'], ['Препарат', 'productName'], ['Дозировка', 'dosage'], ['Способ внесения', 'applicationMethod'],
+    ['Реакция растений', 'plantReaction'], ['Уровень стресса', 'stressLevel'], ['Тургор', 'turgor'], ['Стабильность', 'stability'],
+    ['Температура', 'environmentTemperature'], ['Влажность воздуха', 'environmentAirHumidity'], ['Влажность субстрата', 'substrateHumidity'],
+    ['Освещение', 'environmentLight'], ['Проветривание', 'ventilation'], ['Скорость роста', 'growthRate'], ['Состояние', 'conditionDescription'],
+    ['Место высадки', 'plantingLocation'], ['Схема посадки', 'plantingScheme'], ['Площадь', 'plotArea'], ['Тип грунта', 'soilType'],
+    ['Итог', 'completionResult'], ['Болезнь', 'diseaseName'], ['Вредитель', 'pestName'], ['Степень поражения', 'diseaseSeverity']
+  ];
+  fields.forEach(([label, key, quantity, suffix]) => {
+    const value = get(key);
+    push(label, quantity ? withUnits(value) : suffix && value !== '' ? `${value}${suffix}` : value);
   });
 
-  return uniqueCards;
-}
-
-function normalizeJournalEvents(report, card) {
-  const events = Array.isArray(card && card.events) ? card.events : [];
-
-  return events
-    .map((event, index) => normalizeJournalEvent(report, card, event, index))
-    .sort((left, right) => eventTimestamp(right) - eventTimestamp(left));
-}
-
-function normalizeJournalEvent(report, card, event, index) {
-  const createdAt = firstValue([
-    event && event.createdAt,
-    event && event.date,
-    event && event.time,
-    event && event.timestamp,
-    card && card.updatedAt,
-    card && card.createdAt,
-    card && card.date
-  ]);
-  const title = formatJournalEventTitle(event);
-  const category = getJournalEventCategory(event);
-  const summaryItems = buildJournalEventSummaryItems(event, card);
-  const extraFields = buildExtraFieldItems(event && event.extraFields);
-  const photos = normalizeJournalPhotoUrls(report, event);
-  const createdBy = firstValue([
-    event && event.createdBy,
-    event && event.author,
-    event && event.user,
-    event && event.userName
-  ]) || 'Неизвестно';
-  const comment = firstValue([event && event.comment, event && event.message, event && event.text, event && event.details]) || '';
-  const photoNote = firstValue([event && event.photoNote]) || '';
-  const problemType = firstValue([event && event.problemType, event && event.problem]) || '';
-  const riskLevel = firstValue([event && event.riskLevel, event && event.risk]) || '';
-  const quantity = firstValue([event && event.quantity, event && event.count]) || '';
-  const searchText = [
-    title,
-    createdAt,
-    category,
-    createdBy,
-    comment,
-    photoNote,
-    problemType,
-    riskLevel,
-    quantity,
-    ...summaryItems.flatMap(([label, value]) => [label, value]),
-    ...extraFields.flatMap(([label, value]) => [label, value])
-  ]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
-
-  return {
-    id: firstValue([event && event.eventId]) || `${card && card.cardId ? card.cardId : card.code || 'card'}-${index + 1}`,
-    type: firstValue([event && event.type, event && event.eventType, event && event.name]) || '',
-    title,
-    category,
-    categoryLabel: JOURNAL_EVENT_CATEGORY_LABELS[category] || title,
-    stage: firstValue([event && event.stage, card && card.stage, card && card.batchStatus, card && card.status]) || 'Без стадии',
-    date: createdAt,
-    createdAt,
-    dateLabel: formatJournalDateOnly(createdAt),
-    timeLabel: formatJournalTime(createdAt),
-    createdBy,
-    comment,
-    photoNote,
-    problemType,
-    riskLevel,
-    quantity,
-    previousQuantity: firstValue([event && event.previousQuantity]) || '',
-    currentQuantity: firstValue([event && event.currentQuantity]) || '',
-    summaryItems,
-    photos,
-    extraFields,
-    briefText: buildJournalEventBriefText({ comment, photoNote, problemType, riskLevel, quantity }),
-    searchText
-  };
-}
-
-function buildJournalEventSummaryItems(event, card) {
-  const items = [];
-  const type = normalizeEventType(event);
-  const totalQuantity = Number(firstValue([
-    readEventField(event, 'totalQuantity'),
-    readEventField(event, 'cardQuantity'),
-    card && card.quantity
-  ])) || 0;
-
-  const formatCountWithTotal = (value) => {
-    if (value === undefined || value === null || value === '') {
-      return '';
-    }
-
-    return totalQuantity
-      ? `${value} из ${totalQuantity} шт.`
-      : `${value} шт.`;
-  };
-
-  const getValue = (key) => readEventField(event, key);
-  const getAliasValue = (keys) => firstValue(keys.map((key) => readEventField(event, key)));
-
-  if (type === 'planting') {
-    return [
-      ['Место высадки', getValue('plantingLocation')],
-      ['Схема посадки', getValue('plantingScheme')],
-      ['Площадь / участок', getValue('plotArea')],
-      ['Тип грунта', getValue('soilType')],
-      ['Комментарий', getValue('comment')],
-      ['Фото', getValue('photoNote')]
-    ].filter(([, value]) => Boolean(value));
-  }
-
-  if (type === 'plantingobservation') {
-    return [
-      ['Приживаемость', getValue('survivalRate')],
-      ['Уровень стресса', getValue('stressLevel')],
-      ['Тургор', getValue('turgor')],
-      ['Комментарий', getValue('comment')],
-      ['Фото', getValue('photoNote')]
-    ].filter(([, value]) => Boolean(value));
-  }
-
-  if (type === 'plantingcare') {
-    return [
-      ['Тип ухода', getValue('careType')],
-      ['Препарат', getValue('productName')],
-      ['Дозировка', getValue('dosage')],
-      ['Способ внесения', getValue('applicationMethod')],
-      ['Реакция растений', getValue('plantReaction')],
-      ['Комментарий', getValue('comment')],
-      ['Фото', getValue('photoNote')]
-    ].filter(([, value]) => Boolean(value));
-  }
-
-  if (type === 'plantingcompletion') {
-    return [
-      ['Итог высадки', getValue('completionResult')],
-      ['Комментарий', getValue('comment')],
-      ['Фото', getValue('photoNote')]
-    ].filter(([, value]) => Boolean(value));
-  }
-
-  if (type === 'batchcreated') {
-    return [
-      ['Стадия', getValue('stage')],
-      ['Количество', getValue('quantity') ? `${getValue('quantity')} шт.` : ''],
-      ['QR', getValue('qrStatus')]
-    ].filter(([, value]) => Boolean(value));
-  }
-
   if (type === 'stagechange') {
-    return [
-      ['Укоренено', getValue('rootedCount') ? `${getValue('rootedCount')} шт.` : ''],
-      ['Процент укоренения', getValue('rootingPercent') !== '' ? `${getValue('rootingPercent')}%` : ''],
-      ['Остаток', getValue('currentQuantity') !== '' ? formatCountWithTotal(getValue('currentQuantity')) : '']
-    ].filter(([, value]) => Boolean(value));
-  }
-
-  if (type === 'qrgenerated') {
-    return [
-      ['Код', getValue('code')],
-      ['QR', getValue('qrStatus')]
-    ].filter(([, value]) => Boolean(value));
-  }
-
-  if (type === 'statuschange') {
-    return getStatusOperationItems(event).map(([label, value]) => [label, `${value} шт.`]);
-  }
-
-  if (type === 'movement') {
-    return [
-      ['Местоположение', `${getAliasValue(['previousLocation']) || 'Не указано'} → ${getAliasValue(['nextLocation']) || 'Не указано'}`],
-      ['Комментарий', getValue('comment')]
-    ].filter(([, value]) => Boolean(value));
-  }
-
-  if (type === 'introloss') {
-    return [
-      ['Остаток', getValue('previousQuantity') !== '' && getValue('currentQuantity') !== ''
-        ? `${getValue('previousQuantity')} → ${getValue('currentQuantity')}`
-        : ''],
-      ['Причина', getAliasValue(['reason', 'lossReason'])]
-    ].filter(([, value]) => Boolean(value));
-  }
-
-  if ([
-    'rooting',
-    'death',
-    'discard',
-    'sale',
-    'propagation',
-    'adaptationstress',
-    'adaptationenvironment',
-    'adaptationhumidityreduction',
-    'adaptationcare',
-    'greenhouseobservation',
-    'greenhousecare',
-    'greenhouseenvironment',
-    'greenhousedisease',
-    'hardeningobservation',
-    'hardeningcare',
-    'movement',
-    'transplant',
-    'introloss'
-  ].includes(type)) {
-    if (type === 'propagation') {
-      return [
-        ['Добавлено', getValue('count') ? `${getValue('count')} шт.` : ''],
-        ['Остаток', getValue('currentQuantity') !== '' ? `${getValue('currentQuantity')} шт.` : ''],
-        ['Способ размножения', getValue('propagationMethod')],
-        ['Комментарий', getValue('comment')],
-        ['Фото', getValue('photoNote')]
-      ].filter(([, value]) => Boolean(value));
-    }
-
-    return [
-      ['Количество', formatCountWithTotal(getValue('count') || getValue('quantity'))],
-      ['Причина', getAliasValue(['reason'])],
-      ['Тип реализации', getValue('saleType')],
-      ['Получатель', getValue('recipient')],
-      ['Стоимость', getValue('saleAmount')],
-      ['Способ размножения', getValue('propagationMethod')],
-      ['Уровень стресса', getValue('stressLevel')],
-      ['Состояние', getValue('conditionDescription')],
-      ['Температура', getValue('environmentTemperature')],
-      ['Влажность воздуха', getAliasValue(['environmentAirHumidity', 'environmentHumidity'])],
-      ['Влажность субстрата', getValue('substrateHumidity')],
-      ['Снижение влажности', getValue('humidityReduction')],
-      ['Освещение', getValue('environmentLight')],
-      ['Проветривание', getValue('ventilation')],
-      ['Тургор', getValue('turgor')],
-      ['Стабильность', getValue('stability')],
-      ['Уход', getValue('careType')],
-      ['Интервал ухода', getValue('careIntervalDays') ? `${getValue('careIntervalDays')} дн.` : ''],
-      ['Скорость роста', getValue('growthRate')],
-      ['Уровень риска', getValue('riskLevel')],
-      ['Болезнь', getValue('diseaseName')],
-      ['Вредитель', getValue('pestName')],
-      ['Степень поражения', getValue('diseaseSeverity')],
-      ['Объем полива', getValue('waterVolume')],
-      ['Интервал полива', getValue('wateringIntervalDays') ? `${getValue('wateringIntervalDays')} дн.` : ''],
-      ['Препарат', getValue('productName')],
-      ['Дозировка', getValue('dosage')],
-      ['Способ', getValue('applicationMethod')],
-      ['Реакция растений', getValue('plantReaction')],
-      ['Размещение', getValue('placement')],
-      ['Плотность', getValue('densityChange')],
-      ['Комментарий', getValue('comment')],
-      ['Фото', getValue('photoNote')]
-    ].filter(([, value]) => Boolean(value));
-  }
-
-  if (type === 'comment') {
-    return [['Комментарий', getValue('comment')]].filter(([, value]) => Boolean(value));
-  }
-
-  if (type === 'photo') {
-    return [['Фото', getValue('photoNote')]].filter(([, value]) => Boolean(value));
-  }
-
-  if (type === 'problem') {
-    return [
-      ['Тип проблемы', getValue('problemType')],
-      ['Уровень риска', getValue('riskLevel')],
-      ['Описание проблемы', getValue('problemDescription')],
-      ['Комментарий', getValue('comment')],
-      ['Фото', getValue('photoNote')]
-    ].filter(([, value]) => Boolean(value));
-  }
-
-  if (type === 'contamination') {
-    return [['Описание', getValue('contaminationNote')]].filter(([, value]) => Boolean(value));
-  }
-
-  if (type === 'quarantine') {
-    return [['Причина', getAliasValue(['quarantineReason', 'reason'])]].filter(([, value]) => Boolean(value));
-  }
-
-  if (type === 'quarantinereleased') {
-    return [['Причина снятия', getValue('reason')]].filter(([, value]) => Boolean(value));
+    push('Из стадии', get('fromStage'));
+    push('В стадию', get('toStage'));
   }
 
   return items;
 }
 
-function getStatusOperationItems(operation) {
-  if (!operation) {
-    return [];
-  }
-
-  return [
-    ['Укоренение', readEventField(operation, 'rootedCount')],
-    ['Размножение', readEventField(operation, 'propagationCount')],
-    ['Продажа', readEventField(operation, 'saleCount')],
-    ['Гибель', readEventField(operation, 'deathCount')],
-    ['Выбраковка', readEventField(operation, 'discardCount')]
-  ].filter(([, value]) => Number(value) > 0);
-}
-
-function buildExtraFieldItems(extraFields) {
-  if (!extraFields || typeof extraFields !== 'object' || Array.isArray(extraFields)) {
-    return [];
-  }
-
-  return Object.entries(extraFields)
-    .filter(([, value]) => value !== '' && value !== null && value !== undefined)
-    .map(([key, value]) => [humanizeKey(key), String(value)]);
-}
-
-function buildJournalEventBriefText({ comment, photoNote, problemType, riskLevel, quantity }) {
-  if (comment) return comment;
-  if (photoNote) return photoNote;
-  if (problemType) return `Проблема: ${problemType}`;
-  if (riskLevel) return `Риск: ${riskLevel}`;
-  if (quantity !== '' && quantity !== null && quantity !== undefined) return `Количество: ${quantity} шт.`;
-  return '';
-}
-
-function buildStageFilters(cards) {
-  const counts = new Map(JOURNAL_STAGE_ORDER.map((stage) => [stage, 0]));
-
-  for (const card of cards) {
-    const key = card.stage || 'Без стадии';
-    counts.set(key, (counts.get(key) || 0) + 1);
-  }
-
-  return [
-    { key: 'all', label: JOURNAL_STAGE_LABELS.all, count: cards.length },
-    ...JOURNAL_STAGE_ORDER.map((stage) => ({
-      key: stage,
-      label: JOURNAL_STAGE_LABELS[stage],
-      count: counts.get(stage) || 0
-    }))
-  ];
-}
-
-function buildStageTabs(cards, selectedStage) {
-  return JOURNAL_STAGE_TAB_ORDER.map((stageKey) => ({
-    key: stageKey,
-    label: JOURNAL_STAGE_TAB_LABELS[stageKey] || stageKey,
-    count: stageKey === 'all'
-      ? cards.length
-      : stageKey === 'important'
-        ? cards.filter((card) => Boolean(card.isImportant)).length
-        : cards.filter((card) => sameStage(card.stage, stageKey)).length,
-    active: stageKey === selectedStage
-  }));
-}
-
-function buildEmployeeTabs(cards) {
-  const counts = new Map();
-  const labels = new Map();
-
-  for (const card of Array.isArray(cards) ? cards : []) {
-    const key = resolveJournalEmployee(card.employee);
-    if (!key) {
-      continue;
-    }
-
-    counts.set(key, (counts.get(key) || 0) + 1);
-    if (!labels.has(key)) {
-      labels.set(key, card.employee);
-    }
-  }
-
-  const sortedKeys = [...counts.keys()].sort((left, right) => {
-    const leftLabel = labels.get(left) || left;
-    const rightLabel = labels.get(right) || right;
-    return leftLabel.localeCompare(rightLabel, 'ru');
-  });
-
-  return [
-    { key: 'all', label: 'Все сотрудники', count: cards.length, active: true },
-    ...sortedKeys.map((key) => ({
-      key,
-      label: labels.get(key) || key,
-      count: counts.get(key) || 0,
-      active: false
-    }))
-  ];
-}
-
-function buildSubtabTabs(cards, selectedStage, selectedSubtab) {
-  const scopedCards = selectedStage === 'important'
-    ? cards.filter((card) => Boolean(card.isImportant))
-    : selectedStage && selectedStage !== 'all'
-      ? cards.filter((card) => sameStage(card.stage, selectedStage))
-      : cards;
-  const counts = new Map();
-
-  for (const card of scopedCards) {
-    for (const subtype of Array.isArray(card.subtypes) ? card.subtypes : []) {
-      counts.set(subtype, (counts.get(subtype) || 0) + 1);
-    }
-  }
-
-  return JOURNAL_SUBTAB_ORDER.map((subtabKey) => ({
-    key: subtabKey,
-    label: JOURNAL_SUBTAB_LABELS[subtabKey] || subtabKey,
-    count: subtabKey === 'all' ? scopedCards.length : counts.get(subtabKey) || 0,
-    active: subtabKey === selectedSubtab
-  }));
-}
-
-function matchesJournalCard(card, search, stage, tab) {
-  if (!card || !card.events.length) {
-    return false;
-  }
-
-  const normalizedSearch = String(search || '').trim().toLowerCase();
-  if (stage === 'important') {
-    if (!card.isImportant) {
-      return false;
-    }
-  } else if (stage !== 'all' && card.stage !== stage) {
-    return false;
-  }
-
-  if (normalizedSearch && !card.searchText.includes(normalizedSearch)) {
-    return false;
-  }
-
-  if (tab !== 'all' && !(Array.isArray(card.subtypes) && card.subtypes.includes(tab))) {
-    return false;
-  }
-
-  return true;
-}
-
-function matchesJournalEvent(event, tab) {
-  if (!event) {
-    return false;
-  }
-
-  if (tab === 'all') {
-    return true;
-  }
-
-  return getJournalEventCategory(event) === tab;
-}
-
-function classifyJournalSubtype(event, stage) {
-  const haystack = [
-    event && event.type,
-    event && event.comment,
-    event && event.photoNote,
-    event && event.problemType,
-    event && event.riskLevel
-  ]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
-
-  if (looksProblemLike(event && event.type, event && event.comment, event && event.photoNote, event && event.problemType, event && event.riskLevel)) {
-    return 'problems';
-  }
-
-  if (containsAny(haystack, ['списан', 'writeoff', 'loss', 'death', 'discard', 'потер', 'гибель'])) {
-    return 'losses';
-  }
-
-  if (containsAny(haystack, ['продаж', 'sale', 'sold', 'реализац'])) {
-    return 'sales';
-  }
-
-  if (containsAny(haystack, ['перемещ', 'transfer', 'move', 'relocat'])) {
-    return 'movement';
-  }
-
-  if (stage === 'Клонирование') {
-    if (containsAny(haystack, ['root', 'укорен'])) return 'rooting';
-    if (containsAny(haystack, ['размнож', 'propagat', 'делен'])) return 'propagation';
-    if (containsAny(haystack, ['наблюд', 'осмотр', 'check', 'inspect', 'photo'])) return 'observation';
-    if (containsAny(haystack, ['уход', 'care', 'полив', 'watering', 'feed', 'подкорм'])) return 'care';
-  }
-
-  if (stage === 'Адаптация' || stage === 'Теплица' || stage === 'Закалка') {
-    if (containsAny(haystack, ['наблюд', 'осмотр', 'check', 'inspect', 'photo'])) return 'observation';
-    if (containsAny(haystack, ['уход', 'care', 'полив', 'watering', 'feed', 'подкорм'])) return 'care';
-  }
-
-  if (stage === 'Теплица' && containsAny(haystack, ['пересад', 'transplant'])) {
-    return 'transplant';
-  }
-
-  if (stage === 'Высадка') {
-    if (containsAny(haystack, ['высад', 'plant', 'planting'])) return 'planting';
-    if (containsAny(haystack, ['заверш', 'complete', 'finish', 'done'])) return 'completion';
-    if (containsAny(haystack, ['наблюд', 'осмотр', 'check', 'inspect', 'photo'])) return 'observation';
-    if (containsAny(haystack, ['уход', 'care', 'полив', 'watering', 'feed', 'подкорм'])) return 'care';
-  }
-
-  if (containsAny(haystack, ['наблюд', 'осмотр', 'check', 'inspect', 'photo'])) {
-    return 'observation';
-  }
-
-  if (containsAny(haystack, ['уход', 'care', 'полив', 'watering', 'feed', 'подкорм'])) {
-    return 'care';
-  }
-
-  return 'all';
-}
-
-function getJournalEventCategory(event) {
-  const normalized = normalizeEventType(event);
-
-  if (!normalized) {
-    return 'other';
-  }
-
-  if (normalized === 'photo' || normalized === 'photos') return 'photo';
-  if (['plantingobservation', 'hardeningobservation', 'greenhouseobservation', 'adaptationstress'].includes(normalized)) return 'observation';
-  if (['adaptationcare', 'greenhousecare', 'hardeningcare', 'plantingcare'].includes(normalized)) return 'care';
-  if (['problem', 'contamination', 'quarantine', 'quarantinereleased', 'greenhousedisease'].includes(normalized)) return 'problems';
-  if (['movement', 'stagechange', 'statuschange', 'transplant'].includes(normalized)) return 'movement';
-  if (['introloss', 'death', 'discard'].includes(normalized)) return 'losses';
-  if (normalized === 'sale') return 'sales';
-
-  return 'other';
-}
-
-function formatJournalEventTitle(event) {
-  const rawType = firstValue([event && event.title, event && event.type, event && event.eventType, event && event.name]);
-  if (!rawType) {
-    return 'Событие';
-  }
-
-  const normalized = normalizeEventType(event);
+function formatJournalEventTitle(event, category) {
+  const type = normalizeType(event);
   const labels = {
-    photo: 'Фото',
-    photos: 'Фото',
-    batchcreated: 'Создание партии',
-    stagechange: 'Изменение стадии',
-    statuschange: 'Изменение стадии',
-    movement: 'Перемещение',
-    sale: 'Продажа',
-    introloss: 'Потери',
-    death: 'Потери',
-    discard: 'Списание',
-    propagation: 'Размножение',
-    rooting: 'Укоренение',
-    transplant: 'Пересадка',
-    planting: 'Высадка',
-    plantingobservation: 'Наблюдение',
-    plantingcare: 'Уход',
-    plantingcompletion: 'Завершение',
-    greenhouseobservation: 'Наблюдение',
-    greenhousecare: 'Уход',
-    greenhousedisease: 'Болезнь',
-    greenhousestress: 'Стресс',
-    hardeningobservation: 'Наблюдение',
-    hardeningcare: 'Уход',
-    adaptationstress: 'Наблюдение',
-    adaptationcare: 'Уход',
-    contamination: 'Контаминация',
-    quarantine: 'Карантин',
-    quarantinereleased: 'Снятие с карантина',
-    problem: 'Проблема'
+    batchcreated: 'Создание партии', stagechange: 'Изменение стадии', statuschange: 'Изменение статуса', movement: 'Перемещение',
+    sale: 'Продажа', introloss: 'Потери', loss: 'Потери', death: 'Гибель', discard: 'Списание', propagation: 'Размножение',
+    rooting: 'Укоренение', transplant: 'Пересадка', planting: 'Высадка', plantingobservation: 'Наблюдение', plantingcare: 'Уход',
+    plantingcompletion: 'Завершение', greenhouseobservation: 'Наблюдение', greenhousecare: 'Уход', greenhousedisease: 'Болезнь',
+    hardeningobservation: 'Наблюдение', hardeningcare: 'Уход', adaptationstress: 'Наблюдение', adaptationcare: 'Уход',
+    contamination: 'Контаминация', quarantine: 'Карантин', quarantinereleased: 'Снятие с карантина', problem: 'Проблема', photo: 'Фото'
   };
-
-  return labels[normalized] || rawType;
+  return labels[type] || firstValue([event.title]) || CATEGORY_LABELS[category] || 'Событие';
 }
 
-function formatJournalCardTitle(card) {
-  return [card && card.cultureName, card && card.speciesName, card && card.varietyName]
-    .filter(Boolean)
-    .join(' · ') || (card && card.code) || 'Карточка';
+function normalizePhotoUrls(report, event) {
+  const values = [event && event.photos, event && event.photoFiles, event && event.photoPaths, event && event.photoUri, event && event.photoUris]
+    .flatMap((value) => Array.isArray(value) ? value : [value])
+    .filter((value) => typeof value === 'string' && value.trim());
+  return [...new Set(values.map((photo) => photo.includes('://') ? photo : report && typeof report.getPhotoUrl === 'function' ? report.getPhotoUrl(photo) : '').filter(Boolean))];
 }
 
-function formatJournalDateOnly(value) {
-  const date = toDate(value);
-  if (!date) return '—';
-
-  return new Intl.DateTimeFormat('ru-RU', {
-    timeZone: 'UTC',
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric'
-  }).format(date);
-}
-
-function formatJournalTime(value) {
-  const date = toDate(value);
-  if (!date) return '';
-
-  return new Intl.DateTimeFormat('ru-RU', {
-    timeZone: 'UTC',
-    hour: '2-digit',
-    minute: '2-digit'
-  }).format(date);
-}
-
-function normalizeJournalPhotoUrls(report, event) {
-  const rawPhotos = Array.isArray(event && event.photos) ? event.photos : [];
-  const photoUrls = [];
-
-  for (const photo of rawPhotos) {
-    if (typeof photo !== 'string' || !photo.trim()) {
-      continue;
-    }
-
-    if (photo.includes('://')) {
-      photoUrls.push(photo);
-      continue;
-    }
-
-    if (report && typeof report.getPhotoUrl === 'function') {
-      photoUrls.push(report.getPhotoUrl(photo));
-    }
-  }
-
-  return photoUrls;
-}
-
-function resolveJournalStage(value) {
-  const normalized = String(value || '').trim();
-  if (!normalized || normalized === 'all') {
-    return 'all';
-  }
-
-  return JOURNAL_STAGE_ORDER.find((stage) => stage.toLowerCase() === normalized.toLowerCase()) || 'all';
-}
-
-function resolveJournalTab(value) {
-  const normalized = String(value || '').trim();
-  if (!normalized || normalized === 'all') {
-    return 'all';
-  }
-
-  return JOURNAL_SUBTAB_ORDER.find((tab) => tab === normalized) || 'all';
-}
-
-function sameStage(left, right) {
-  return String(left || '').trim().toLowerCase() === String(right || '').trim().toLowerCase();
-}
-
-function resolveSelectedCardId(value, visibleCards) {
-  const normalized = String(value || '').trim();
-  if (normalized && Array.isArray(visibleCards) && visibleCards.some((card) => card.id === normalized)) {
-    return normalized;
-  }
-
-  return '';
-}
-
-function resolveJournalEmployee(value) {
-  return String(value || '').trim().toLowerCase();
-}
-
-function resolveReportTitle(report) {
-  if (!report) {
-    return 'Журнал';
-  }
-
-  const userName = report.user && (report.user.displayName || [report.user.firstName, report.user.lastName].filter(Boolean).join(' '));
-  return userName || report.reportId || 'Журнал';
-}
-
-function resolveReportEmployee(report) {
-  if (!report) {
-    return 'Неизвестно';
-  }
-
-  const userName = report.user && (report.user.displayName || [report.user.firstName, report.user.lastName].filter(Boolean).join(' ').trim());
-  return userName || report.author || report.userName || 'Неизвестно';
-}
-
-function eventTimestamp(event) {
-  return toDate(event && (event.createdAt || event.date || event.time || event.timestamp))?.getTime() || 0;
-}
-
-function toDate(value) {
-  if (!value) {
-    return null;
-  }
-
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function firstValue(values) {
-  const list = Array.isArray(values) ? values : [values];
-
-  for (const value of list) {
-    if (typeof value === 'string' && value.trim()) {
-      return value.trim();
-    }
-
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      return String(value);
-    }
-  }
-
-  return '';
+function isImportantEvent(event, category) {
+  return ['problems', 'losses', 'sales'].includes(category) || normalizeType(event) === 'stagechange' || /critical|высок/i.test(`${readEventField(event, 'riskLevel')} ${readEventField(event, 'risk')}`);
 }
 
 function readEventField(event, key) {
-  if (!event) {
-    return '';
+  const extra = event && event.extraFields && typeof event.extraFields === 'object' ? event.extraFields : {};
+  return firstValue([event && event[key], extra[key]]);
+}
+
+function normalizeType(event) {
+  return String(firstValue([event && event.type, event && event.eventType, event && event.name]) || '').toLowerCase().replace(/[^a-zа-яё]/g, '');
+}
+
+function firstValue(values) {
+  for (const value of Array.isArray(values) ? values : [values]) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
   }
-
-  const extraFields = event.extraFields && typeof event.extraFields === 'object' && !Array.isArray(event.extraFields)
-    ? event.extraFields
-    : null;
-  return firstValue([event[key], extraFields ? extraFields[key] : '']);
+  return '';
 }
 
-function normalizeEventType(event) {
-  return String(firstValue([event && event.type, event && event.eventType, event && event.name, event && event.title]) || '')
-    .toLowerCase()
-    .replace(/[^a-zа-яё]/g, '');
+function withUnits(value) {
+  const text = formatValue(value);
+  return text && text !== '0' ? `${text} шт.` : '';
 }
 
-function unique(values) {
-  return [...new Set(values)];
+function formatValue(value) {
+  if (value === undefined || value === null || value === '' || value === 0 || value === '0') return '';
+  return String(value).trim();
 }
 
-function containsAny(text, fragments) {
-  return fragments.some((fragment) => text.includes(fragment));
+function normalizeText(value) {
+  return String(value || '').trim().toLowerCase();
 }
 
-function looksProblemLike(...values) {
-  const text = values.filter(Boolean).join(' ').toLowerCase();
-  return containsAny(text, ['problem', 'risk', 'карантин', 'контамин', 'issue', 'warning']);
+function isUnknownAuthor(value) {
+  return UNKNOWN_AUTHOR_VALUES.has(normalizeText(value));
 }
 
-function humanizeKey(key) {
-  return String(key || '')
-    .replace(/([a-zа-яё])([A-ZА-ЯЁ])/g, '$1 $2')
-    .replace(/_/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+function toDate(value) {
+  const date = new Date(value || 0);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function toTimestamp(value) {
+  const date = toDate(value);
+  return date ? date.getTime() : 0;
 }
 
 module.exports = {
+  STAGES,
   buildJournalPageModel,
-  JOURNAL_STAGE_ORDER,
-  JOURNAL_STAGE_LABELS,
-  JOURNAL_TAB_ORDER,
-  JOURNAL_TAB_LABELS,
-  buildEmployeeTabs,
-  formatJournalEventTitle,
-  formatJournalCardTitle,
-  formatJournalDateOnly,
-  formatJournalTime,
-  getJournalEventCategory,
-  matchesJournalCard,
-  matchesJournalEvent
+  buildGlobalJournal,
+  buildEmployeeDirectory,
+  deduplicateEvents,
+  normalizeJournalEvent,
+  getEventCategory,
+  isPlantEvent,
+  filterJournalEvents,
+  groupEventsByDate,
+  formatJournalDate,
+  formatJournalTime
 };

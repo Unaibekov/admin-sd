@@ -39,7 +39,7 @@
           <div class="batches-list" aria-label="Список партий">
             <% if (stages.cards.length) { %>
               <% stages.cards.forEach((card) => { %>
-                <a class="batch-list-card <%= selected && selected.batchKey === card.batchKey ? 'active' : '' %>" href="/stages?batchId=<%= encodeURIComponent(card.batchKey) %>&stage=<%= encodeURIComponent(stages.selectedStage) %><%= stages.search ? '&q=' + encodeURIComponent(stages.search) : '' %>">
+                <a class="batch-list-card <%= selected && selected.batchKey === card.batchKey ? 'active' : '' %>" <%= selected && selected.batchKey === card.batchKey ? 'data-selected-batch' : '' %> href="/stages?batchId=<%= encodeURIComponent(card.batchKey) %>&stage=<%= encodeURIComponent(stages.selectedStage) %><%= stages.search ? '&q=' + encodeURIComponent(stages.search) : '' %>">
                   <span class="batch-list-status batch-status-<%= card.status.toLowerCase().replace(/[^a-zа-я]+/gi, '-') %>"></span>
                   <span class="batch-list-copy">
                     <strong><%= card.title %></strong>
@@ -77,9 +77,9 @@
             </header>
 
             <nav class="batch-tabs" aria-label="Разделы партии">
-              <a class="active" href="#calendar">Календарь</a>
-              <a href="#passport">Паспорт</a>
-              <a href="#journal">Журнал</a>
+              <a class="<%= stages.selectedTab === 'calendar' ? 'active' : '' %>" href="#calendar">Календарь</a>
+              <a class="<%= stages.selectedTab === 'passport' ? 'active' : '' %>" href="#passport">Паспорт</a>
+              <a class="<%= stages.selectedTab === 'journal' ? 'active' : '' %>" href="#journal">Журнал</a>
             </nav>
 
             <div class="batch-detail-content">
@@ -90,7 +90,7 @@
                     <% selected.events.slice().reverse().forEach((event) => { %>
                       <article class="batch-calendar-event">
                         <time><%= event.createdAt ? new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit' }).format(new Date(event.createdAt)) : '—' %></time>
-                        <div><strong><%= event.title %></strong><p><%= event.comment || event.photoNote || (event.count ? `Количество: ${event.count} шт.` : 'Без дополнительной информации') %></p></div>
+                        <div><strong><%= event.title %></strong><p><%= event.comment || (event.count ? `Количество: ${event.count} шт.` : 'Без дополнительной информации') %></p></div>
                       </article>
                     <% }) %>
                   </div>
@@ -110,7 +110,7 @@
               <section class="batch-tab-panel" id="journal">
                 <div class="detail-section-head"><div><p class="eyebrow">Хронология</p><h3>Журнал</h3></div></div>
                 <div class="batch-journal-list">
-                  <% selected.events.forEach((event) => { %><article><time><%= event.createdAt ? new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(event.createdAt)) : '—' %></time><div><strong><%= event.title %></strong><p><%= event.comment || event.photoNote || '' %></p><small><%= event.type %></small></div></article><% }) %>
+                  <% selected.events.forEach((event) => { %><article data-event-id="<%= event.eventId %>"><time><%= event.createdAt ? new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(event.createdAt)) : '—' %></time><div><strong><%= event.title %></strong><p><%= event.comment || '' %></p><small><%= event.type %></small></div></article><% }) %>
                 </div>
               </section>
             </div>

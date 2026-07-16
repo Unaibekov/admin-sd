@@ -21,6 +21,10 @@ function buildStagesPageModel(reports = [], query = {}) {
   });
   const requestedBatchKey = String(query.batchId || '').trim();
   const requestedCardId = String(query.cardId || '').trim();
+  const selectedTab = ['calendar', 'passport', 'journal'].includes(String(query.tab || '').trim())
+    ? String(query.tab).trim()
+    : 'calendar';
+  const highlightedEventId = String(query.eventId || '').trim();
   const selectedCard = filteredCards.find((card) => card.batchKey === requestedBatchKey)
     || (!requestedBatchKey && filteredCards.find((card) => card.cardId === requestedCardId))
     || null;
@@ -31,6 +35,8 @@ function buildStagesPageModel(reports = [], query = {}) {
     selectedStage: stage || 'all',
     selectedCardId: selectedCard ? selectedCard.cardId : '',
     selectedBatchKey: selectedCard ? selectedCard.batchKey : '',
+    selectedTab,
+    highlightedEventId,
     cards: filteredCards,
     selectedCard,
     stages: [
@@ -72,14 +78,17 @@ function buildBatchCatalog(reports) {
 }
 
 function normalizeCard(raw, parsed, report, index) {
-  const titleParts = [raw.cultureName || parsed.culture, raw.speciesName, raw.varietyName || parsed.variety || parsed.sort].filter(Boolean);
+  const titleParts = [raw.cultureName || parsed.culture, raw.speciesName, raw.varietyName || parsed.variety || parsed.sort].filter(isVisiblePlantPart);
   const events = Array.isArray(raw.events) ? raw.events : Array.isArray(parsed.events) ? parsed.events : [];
   const snapshotAt = eventTime(raw.updatedAt || raw.createdAt || parsed.date || report.createdAt);
   const currentQuantity = raw.currentQuantity ?? raw.currentCount ?? raw.remainingCount ?? parsed.currentCount ?? raw.quantity ?? parsed.initialCount;
   const initialQuantity = raw.initialQuantity ?? raw.initialCount ?? raw.quantity ?? parsed.initialCount;
   const stage = String(raw.stage || parsed.stage || '').trim() || 'Без стадии';
   const status = String(raw.batchStatus || raw.status || parsed.status || 'Не указан').trim();
+  const sterilityStatus = String(raw.sterilityStatus || parsed.sterilityStatus || '').trim();
   const location = raw.locationDescription || raw.location || raw.place || parsed.location || '';
+  const problemType = raw.problemType || raw.problem || parsed.problemType || parsed.problem || '';
+  const riskLevel = raw.riskLevel || raw.risk || parsed.riskLevel || parsed.risk || '';
   const code = String(raw.code || parsed.code || `card-${index + 1}`);
   const cardId = String(raw.cardId || parsed.cardId || code);
   const deviceId = String(report.deviceId || '').trim();
@@ -92,11 +101,15 @@ function normalizeCard(raw, parsed, report, index) {
     deviceId,
     code,
     title: titleParts.length ? titleParts.join(' · ') : code,
-    culture: raw.cultureName || parsed.culture || '',
-    species: raw.speciesName || '',
-    variety: raw.varietyName || parsed.variety || parsed.sort || '',
+    culture: isVisiblePlantPart(raw.cultureName || parsed.culture) ? raw.cultureName || parsed.culture : '',
+    species: isVisiblePlantPart(raw.speciesName) ? raw.speciesName : '',
+    variety: isVisiblePlantPart(raw.varietyName || parsed.variety || parsed.sort) ? raw.varietyName || parsed.variety || parsed.sort : '',
     stage,
     status,
+    sterilityStatus,
+    problemType,
+    riskLevel,
+    cancelledAt: raw.cancelledAt || '',
     currentQuantity,
     initialQuantity,
     location,
@@ -108,6 +121,11 @@ function normalizeCard(raw, parsed, report, index) {
     photoFiles: uniqueStrings([...(raw.photoFiles || []), ...(raw.photos || [])]),
     searchText: [cardId, code, deviceId, ...titleParts, stage, status, location].join(' ').toLowerCase()
   };
+}
+
+function isVisiblePlantPart(value) {
+  const text = String(value || '').trim();
+  return text && text.toLowerCase() !== 'отсутствует';
 }
 
 function buildBatchKey(deviceId, cardId, reportId) {
@@ -126,7 +144,6 @@ function normalizeEvent(event, reportId) {
     count: event.currentQuantity ?? event.count ?? event.quantity ?? '',
     previousQuantity: event.previousQuantity ?? '',
     comment: event.comment || event.message || '',
-    photoNote: event.photoNote || '',
     extraFields: event.extraFields && typeof event.extraFields === 'object' ? event.extraFields : {},
     photos
   };

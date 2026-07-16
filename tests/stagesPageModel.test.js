@@ -66,6 +66,29 @@ run('merges snapshots only when deviceId and cardId match', () => {
   assert.deepEqual(card.events.map((event) => event.eventId).sort(), ['event-a1', 'event-a2']);
 });
 
+run('selects a batch and journal tab from dashboard event query parameters', () => {
+  const reports = [buildReport({ reportId: 'report-a', deviceId: 'device-a', updatedAt: '2026-06-10T09:00:00.000Z', quantity: 10, eventId: 'event-a' })];
+  const model = buildStagesPageModel(reports, { cardId: '1718000000000', tab: 'journal', eventId: 'event-a' });
+
+  assert.equal(model.selectedCard.cardId, '1718000000000');
+  assert.equal(model.selectedTab, 'journal');
+  assert.equal(model.highlightedEventId, 'event-a');
+});
+
+run('hides technical missing plant names from batch titles', () => {
+  const report = buildReport({ reportId: 'report-missing-name', deviceId: 'device-a', updatedAt: '2026-07-15T09:00:00.000Z', quantity: 10, eventId: 'event-name' });
+  report.raw.cards[0].cultureName = 'Арония';
+  report.raw.cards[0].speciesName = 'Мулатка';
+  report.raw.cards[0].varietyName = 'Отсутствует';
+  report.cards[0].cultureName = 'Арония';
+  report.cards[0].speciesName = 'Мулатка';
+  report.cards[0].varietyName = 'Отсутствует';
+
+  const [card] = buildBatchCatalog([report]);
+  assert.equal(card.title, 'Арония · Мулатка');
+  assert.equal(card.variety, '');
+});
+
 if (process.exitCode) {
   process.exit(process.exitCode);
 }

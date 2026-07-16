@@ -1,302 +1,130 @@
 <%- include('partials/head', { pageTitle }) %>
-<%
-  const cards = Array.isArray(journal.cards) ? journal.cards : [];
-  const stageTabs = Array.isArray(journal.stageTabs) ? journal.stageTabs : [];
-  const subtabTabs = Array.isArray(journal.subtabTabs) ? journal.subtabTabs : [];
-  const employeeTabs = Array.isArray(journal.employeeTabs) ? journal.employeeTabs : [];
-  const selectedCardId = journal.selectedCardId || '';
-  const selectedCard = journal.selectedCard || null;
-  const selectedStageLabel = stageTabs.find((filter) => filter.active)?.label || 'Все стадии';
-  const selectedEmployeeLabel = employeeTabs.find((filter) => filter.active)?.label || 'Все сотрудники';
-
-  const formatDaysInStage = (value) => {
-    if (!value) {
-      return '—';
-    }
-
-    const start = new Date(value);
-    if (Number.isNaN(start.getTime())) {
-      return '—';
-    }
-
-    const now = new Date();
-    const startUtc = Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate());
-    const nowUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-    const days = Math.max(0, Math.floor((nowUtc - startUtc) / 86400000));
-    const lastTwoDigits = days % 100;
-    const lastDigit = days % 10;
-
-    if (lastTwoDigits >= 11 && lastTwoDigits <= 14) {
-      return `${days} дней в стадии`;
-    }
-
-    if (lastDigit === 1) {
-      return `${days} день в стадии`;
-    }
-
-    if (lastDigit >= 2 && lastDigit <= 4) {
-      return `${days} дня в стадии`;
-    }
-
-    return `${days} дней в стадии`;
-  };
-
-  const buildEventItems = (event) => (Array.isArray(event.summaryItems) ? event.summaryItems : []);
-%>
+<% const filters = journal.filters; %>
 <div class="app-shell">
-  <%- include('partials/sidebar', { activePage: 'journal', showDashboardLink: journal.hasCards }) %>
+  <%- include('partials/sidebar', { activePage: 'journal', showDashboardLink: journal.hasEvents }) %>
 
   <main class="app-main app-main-journal">
-    <section class="journal-page" data-journal-page>
-      <header class="journal-hero app-page-hero">
-        <div class="journal-hero-copy">
+    <section class="global-journal" data-global-journal-page>
+      <header class="global-journal-hero app-page-hero">
+        <div>
           <h1>Журнал</h1>
         </div>
       </header>
 
-      <section class="journal-layout">
-        <aside class="journal-sidebar-column">
-          <section class="journal-panel journal-controls-panel">
-            <div class="journal-search-row">
-              <div class="journal-filter-group">
-                <label class="journal-search">
-                  <input
-                    type="search"
-                    value="<%= journal.search %>"
-                    placeholder="По коду, культуре или сорту"
-                    data-journal-search
-                  />
-                </label>
-              </div>
+      <section class="global-journal-layout">
+        <aside class="global-journal-filter-panel">
+          <h2>Фильтры</h2>
+          <form class="global-journal-filters" method="get" action="/journal">
+        <label class="global-journal-period">
+          <span>Период</span>
+          <select name="period" data-global-journal-period>
+            <% journal.periodOptions.forEach((option) => { %>
+              <option value="<%= option.value %>" <%= filters.period === option.value ? 'selected' : '' %>><%= option.label %></option>
+            <% }) %>
+          </select>
+        </label>
+        <div class="global-journal-custom-range" data-global-journal-custom-range <%= filters.period === 'custom' ? '' : 'hidden' %>>
+          <label>
+            <span>С</span>
+            <input type="date" name="dateFrom" value="<%= filters.dateFrom %>" data-global-journal-date />
+          </label>
+          <label>
+            <span>По</span>
+            <input type="date" name="dateTo" value="<%= filters.dateTo %>" data-global-journal-date />
+          </label>
+        </div>
+        <label>
+          <span>Сотрудник</span>
+          <select name="employee">
+            <% journal.employeeOptions.forEach((option) => { %>
+              <option value="<%= option.value %>" <%= filters.employee === option.value ? 'selected' : '' %>><%= option.label %></option>
+            <% }) %>
+          </select>
+        </label>
+        <label>
+          <span>Тип события</span>
+          <select name="category">
+            <% journal.categoryOptions.forEach((option) => { %>
+              <option value="<%= option.value %>" <%= filters.category === option.value ? 'selected' : '' %>><%= option.label %></option>
+            <% }) %>
+          </select>
+        </label>
+        <label>
+          <span>Стадия</span>
+          <select name="stage">
+            <% journal.stageOptions.forEach((option) => { %>
+              <option value="<%= option.value %>" <%= filters.stage === option.value ? 'selected' : '' %>><%= option.label %></option>
+            <% }) %>
+          </select>
+        </label>
+        <label class="global-journal-search">
+          <span>Партия</span>
+          <input type="search" name="q" value="<%= filters.query %>" placeholder="Код, культура, вид или сорт" />
+        </label>
+            <button class="global-journal-apply" type="submit">Показать</button>
 
-              <div class="journal-employee-filter" data-journal-employee-filter>
-                <button
-                  type="button"
-                  class="journal-employee-filter-toggle"
-                  data-journal-employee-filter-toggle
-                  aria-expanded="false"
-                >
-                  Сотрудник
-                </button>
-
-                <div class="journal-employee-filter-menu" data-journal-employee-filter-menu hidden>
-                  <span class="journal-filter-label">Сотрудник</span>
-                  <div class="journal-pill-row journal-pill-row-vertical">
-                    <% employeeTabs.forEach((filter) => { %>
-                      <button
-                        type="button"
-                        class="journal-pill <%= filter.active ? 'active' : '' %>"
-                        data-journal-employee="<%= filter.key %>"
-                      >
-                        <span class="journal-pill-label"><%= filter.label %></span>
-                        <span class="journal-pill-count"><%= filter.count %></span>
-                      </button>
-                    <% }) %>
-                  </div>
-                </div>
-              </div>
-
-              <div class="journal-stage-filter" data-journal-stage-filter>
-                <button
-                  type="button"
-                  class="journal-stage-filter-toggle"
-                  data-journal-stage-filter-toggle
-                  aria-expanded="false"
-                >
-                  Фильтр
-                </button>
-
-                <div class="journal-stage-filter-menu" data-journal-stage-filter-menu hidden>
-                  <span class="journal-filter-label">Стадии</span>
-                  <div class="journal-pill-row journal-pill-row-vertical">
-                    <% stageTabs.forEach((filter) => { %>
-                      <button
-                        type="button"
-                        class="journal-pill <%= filter.active ? 'active' : '' %>"
-                        data-journal-stage="<%= filter.key %>"
-                      >
-                        <span class="journal-pill-label"><%= filter.label %></span>
-                        <span class="journal-pill-count"><%= filter.count %></span>
-                      </button>
-                    <% }) %>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div class="journal-chip-strip-wrap" data-journal-tab-strip-wrap>
-              <div class="journal-chip-strip" data-journal-tab-strip>
-                <% subtabTabs.forEach((filter) => { %>
-                  <button
-                    type="button"
-                    class="journal-pill journal-chip-pill <%= filter.active ? 'active' : '' %>"
-                    data-journal-tab="<%= filter.key %>"
-                  >
-                    <span class="journal-pill-label"><%= filter.label %></span>
-                  </button>
-                <% }) %>
-              </div>
-            </div>
-          </section>
-
-          <div class="journal-selection-summary" data-journal-selection-summary>
-            <strong data-journal-selected-stage><%= selectedStageLabel %></strong>
-            <span data-journal-selected-employee><%= selectedEmployeeLabel %></span>
-          </div>
-
-          <section class="journal-panel journal-cards-panel">
-            <div class="journal-cards-list">
-              <% if (cards.length) { %>
-                <% cards.forEach((card) => { %>
-                  <article
-                    class="journal-card <%= card.id === selectedCardId ? 'active' : '' %>"
-                    data-journal-card
-                    data-journal-card-id="<%= card.id %>"
-                    data-journal-card-stage="<%= card.stage %>"
-                    data-journal-card-employee="<%= card.employee %>"
-                    data-journal-card-important="<%= card.isImportant ? '1' : '0' %>"
-                    data-journal-card-search="<%= card.searchText %>"
-                    data-journal-card-subtypes="<%= (card.subtypes || []).join(' ') %>"
-                    <%= card.isVisible ? '' : 'hidden' %>
-                  >
-                    <button type="button" class="journal-card-button" data-journal-select-card="<%= card.id %>">
-                      <div class="journal-card-top">
-                        <div class="journal-card-heading">
-                          <h3><%= card.title %></h3>
-                          <span><%= card.stage %></span>
-                        </div>
-                        <div class="journal-card-badge">
-                          <span><%= card.eventCount %></span>
-                        </div>
-                      </div>
-
-                      <div class="journal-card-meta-row">
-                        <span class="journal-card-meta-item">
-                          <span class="journal-card-meta-line">
-                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                              <rect x="3" y="5" width="18" height="16" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="2"></rect>
-                              <path d="M8 3v4M16 3v4M3 9h18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
-                            </svg>
-                            <strong><%= card.lastEventDate %></strong>
-                          </span>
-                        </span>
-                        <span class="journal-card-meta-item">
-                          <span class="journal-card-meta-line">
-                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                              <path d="M12 3C8 7 6 10 6 13.5C6 17.1 8.9 20 12 20C15.1 20 18 17.1 18 13.5C18 10 16 7 12 3Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path>
-                              <path d="M12 7V17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
-                              <path d="M12 12C10.5 12 9.3 11.1 8.6 9.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
-                              <path d="M12 12C13.5 12 14.7 11.1 15.4 9.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
-                            </svg>
-                            <strong><%= (card.currentQuantity || card.quantity) ? `${card.currentQuantity || card.quantity} шт.` : '—' %></strong>
-                          </span>
-                        </span>
-                        <span class="journal-card-meta-item">
-                          <span class="journal-card-meta-line">
-                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                              <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"></circle>
-                              <path d="M12 7v5l3 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
-                            </svg>
-                            <strong><%= formatDaysInStage(card.stageChangedAt || card.updatedAt || card.createdAt || (card.lastEvent && (card.lastEvent.date || card.lastEvent.createdAt))) %></strong>
-                          </span>
-                        </span>
-                      </div>
-                    </button>
-                  </article>
-                <% }) %>
-                <div class="empty-state journal-empty-state" hidden data-journal-empty-results>
-                  <h3>Ничего не найдено</h3>
-                  <p>Попробуйте изменить поиск или стадию.</p>
-                </div>
-              <% } else { %>
-                <div class="empty-state journal-empty-state" data-journal-empty-cards>
-                  <h3>Партии не найдены</h3>
-                  <p>Загрузите отчеты, чтобы журнал появился на этой странице.</p>
-                </div>
-              <% } %>
-            </div>
-          </section>
+          </form>
         </aside>
 
-        <section class="journal-panel journal-detail-panel">
-          <div class="journal-detail-placeholder" data-journal-placeholder <%= !journal.hasVisibleCards || selectedCard ? 'hidden' : '' %>>
-            <h2>Выберите партию слева</h2>
-            <p>Здесь появится журнал событий выбранной партии.</p>
-          </div>
+        <section class="global-journal-results">
 
-          <% cards.forEach((card) => { %>
-            <article
-              class="journal-detail-card <%= card.id === selectedCardId ? 'active' : '' %>"
-              data-journal-panel
-              data-journal-panel-id="<%= card.id %>"
-              style="display: <%= card.id === selectedCardId ? 'grid' : 'none' %>;"
-              <%= card.id === selectedCardId ? '' : 'hidden' %>
-            >
-              <div class="journal-detail-head">
-                <div class="journal-detail-title-copy">
-                  <h2><%= card.title %></h2>
-                  <p><%= card.stage %></p>
-                </div>
-              </div>
+          <% if (journal.hasEvents) { %>
+        <section class="global-journal-summary" aria-label="Сводка по найденным событиям">
+          <span>Найдено действий: <strong><%= journal.summary.total %></strong></span>
+          <span>Проблемных действий: <strong><%= journal.summary.problems %></strong></span>
+          <span>Потеряно растений: <strong><%= journal.summary.lostPlants %></strong></span>
+          <span>Продано растений: <strong><%= journal.summary.soldPlants %></strong></span>
+          <span>Действий с фото: <strong><%= journal.summary.photos %></strong></span>
+        </section>
 
-              <div class="journal-detail-events">
-                <% const visibleEvents = Array.isArray(card.events) ? card.events.filter((event) => journal.tab === 'all' ? true : event.category === journal.tab) : []; %>
-                <% if (visibleEvents.length) { %>
-                  <% visibleEvents.forEach((event) => { %>
-                    <article
-                      class="journal-event journal-event-<%= event.category %>"
-                      data-journal-event
-                      data-journal-event-category="<%= event.category %>"
-                    >
-                      <div class="journal-event-time-column">
-                        <span class="journal-event-time"><%= event.timeLabel %></span>
-                      </div>
-
-                      <div class="journal-event-content">
-                        <strong class="journal-event-title"><%= event.title %></strong>
-
-                        <% const detailItems = buildEventItems(event); %>
-                        <% if (detailItems.length || event.photos.length) { %>
-                          <div class="journal-event-body">
-                            <% if (detailItems.length) { %>
-                              <dl class="journal-event-record">
-                                <% detailItems.forEach(([label, value]) => { %>
-                                  <div class="journal-event-record-item">
-                                    <dt><%= label %></dt>
-                                    <dd><%= value %></dd>
-                                  </div>
-                                <% }) %>
-                              </dl>
-                            <% } %>
-
-                            <% if (event.photos.length) { %>
-                              <div class="journal-event-photos">
-                                <% event.photos.forEach((photoUrl) => { %>
-                                  <button
-                                    type="button"
-                                    class="journal-event-photo"
-                                    data-photo-url="<%= photoUrl %>"
-                                    data-photo-label="<%= event.title %>"
-                                  >
-                                    <img src="<%= photoUrl %>" alt="<%= event.title %>" loading="lazy" />
-                                  </button>
-                                <% }) %>
-                              </div>
-                            <% } %>
+        <% if (journal.hasResults) { %>
+          <section class="global-journal-timeline" aria-label="Хронология событий">
+            <% journal.groups.forEach((group) => { %>
+              <section class="global-journal-day">
+                <h2><%= group.label %></h2>
+                <div class="global-journal-events">
+                  <% group.events.forEach((event) => { %>
+                    <article class="global-journal-event global-journal-event-<%= event.category %>">
+                      <time datetime="<%= event.date %>"><%= event.timeLabel %></time>
+                      <div class="global-journal-event-body">
+                        <div class="global-journal-event-topline">
+                          <div>
+                            <span class="global-journal-category"><%= event.categoryLabel %></span>
+                            <h3><%= event.title %></h3>
+                          </div>
+                          <% if (event.isImportant) { %><span class="global-journal-important">Важно</span><% } %>
+                        </div>
+                        <p class="global-journal-batch"><strong><%= event.culture %></strong><span><%= event.code %> · <%= event.stage %></span></p>
+                        <p class="global-journal-author">Автор: <%= event.createdBy %></p>
+                        <% if (event.details.length) { %>
+                          <dl class="global-journal-details">
+                            <% event.details.forEach((item) => { %><div><dt><%= item.label %></dt><dd><%= item.value %></dd></div><% }) %>
+                          </dl>
+                        <% } %>
+                        <% if (event.comment) { %><p class="global-journal-comment"><%= event.comment %></p><% } %>
+                        <% if (event.photos.length) { %>
+                          <div class="global-journal-photos">
+                            <% event.photos.forEach((photo, photoIndex) => { %>
+                              <button type="button" class="global-journal-photo" data-photo-url="<%= photo %>" data-photo-label="<%= event.title %>, <%= event.code %>">
+                                <img src="<%= photo %>" alt="Фото события <%= photoIndex + 1 %>" />
+                              </button>
+                            <% }) %>
                           </div>
                         <% } %>
+                        <% if (event.cardId) { %><a class="global-journal-batch-link" href="<%= event.batchUrl %>">Открыть партию</a><% } %>
                       </div>
                     </article>
                   <% }) %>
-                <% } else { %>
-                  <div class="empty-state journal-empty-state" data-journal-events-empty>
-                    <h3>Событий нет</h3>
-                    <p>Для выбранного фильтра у партии нет подходящих записей.</p>
-                  </div>
-                <% } %>
-              </div>
-            </article>
-          <% }) %>
+                </div>
+              </section>
+            <% }) %>
+          </section>
+        <% } else { %>
+          <section class="empty-state global-journal-empty"><h2>Ничего не найдено</h2><p>Попробуйте изменить период или фильтры.</p></section>
+        <% } %>
+          <% } else { %>
+            <section class="empty-state global-journal-empty"><h2>Пока нет событий</h2><p>Они появятся после загрузки отчетов из Sadovnik Diary.</p></section>
+          <% } %>
         </section>
       </section>
     </section>

@@ -2,6 +2,7 @@ const fs = require('fs/promises');
 const fsSync = require('fs');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 const unzipper = require('unzipper');
 const { pipeline } = require('stream/promises');
 
@@ -248,7 +249,7 @@ function deriveSummary(rawSummary, cards) {
 
   for (const card of cards) {
     summary.eventsCount += card.events.length;
-    summary.photosCount += card.photos.length + card.events.reduce((total, event) => total + event.photos.length, 0);
+    summary.photosCount += countUniqueCardPhotos(card);
     if (card.problem || card.risk || card.events.some((event) => event.problem || event.risk)) {
       summary.problemsCount += 1;
     }
@@ -260,6 +261,7 @@ function deriveSummary(rawSummary, cards) {
 
   if (rawSummary && typeof rawSummary === 'object') {
     for (const key of Object.keys(summary)) {
+      if (key === 'photosCount') continue;
       const value = rawSummary[key];
       if (Number.isFinite(Number(value))) {
         summary[key] = Number(value);
@@ -812,10 +814,16 @@ async function listReports() {
         continue;
       }
       seenFingerprints.add(fingerprint);
-      let summary = parsed.summary;
+      const reportDirPhotos = path.join(reportDir, 'photos');
+      const photoFolderExists = await pathExists(reportDirPhotos);
+      const availablePhotoPaths = photoFolderExists ? await collectPhotoPaths(reportDirPhotos, 'photos') : [];
+      const availablePhotoSet = new Set(availablePhotoPaths);
+      const photoIdentityByPath = await buildPhotoIdentityMap(reportDir, availablePhotoPaths);
+      const displayCards = buildDisplayCards(parsed.cards, availablePhotoSet, photoIdentityByPath);
+      let summary = deriveSummary(parsed.summary, displayCards);
       if (await pathExists(summaryJsonPath)) {
         const storedSummary = await readJsonFile(summaryJsonPath);
-        summary = deriveSummary(storedSummary, parsed.cards);
+        summary = deriveSummary(storedSummary, displayCards);
       }
 
       reports.push({
@@ -930,11 +938,13 @@ async function getReport(reportId) {
 
   const availablePhotoPaths = photoFolderExists ? await collectPhotoPaths(reportDirPhotos, 'photos') : [];
   const availablePhotoSet = new Set(availablePhotoPaths);
+  const photoIdentityByPath = await buildPhotoIdentityMap(reportDir, availablePhotoPaths);
+  const displayCards = buildDisplayCards(parsed.cards, availablePhotoSet, photoIdentityByPath);
   const summaryPath = path.join(reportDir, 'summary.json');
-  let summary = parsed.summary;
+  let summary = deriveSummary(parsed.summary, displayCards);
   if (await pathExists(summaryPath)) {
     const storedSummary = await readJsonFile(summaryPath);
-    summary = deriveSummary(storedSummary, parsed.cards);
+    summary = deriveSummary(storedSummary, displayCards);
   }
 
   return {
@@ -945,29 +955,24 @@ async function getReport(reportId) {
     user: parsed.user,
     testLocation: parsed.testLocation,
     summary,
-    cards: parsed.cards.map((card) => ({
-      ...card,
-      photos: card.photos.filter((photo) => availablePhotoSet.has(photo) || photo.startsWith('http')),
-      events: card.events.map((event) => ({
-        ...event,
-        photos: event.photos.filter((photo) => availablePhotoSet.has(photo) || photo.startsWith('http'))
-      }))
-    })),
+    cards: displayCards,
     getPhotoUrl(photoPath) {
       if (typeof photoPath !== 'string' || !photoPath.trim()) return '';
       const normalized = photoPath.replace(/\\/g, '/').replace(/^\/+/, '');
-      return getStorageUrl(parsed.reportId, normalized.startsWith('photos/') ? normalized : `photos/${normalized}`);
+      if (normalized.includes('://')) {
+        return normalized;
+      }
+
+      const relativePath = normalized.startsWith('photos/') ? normalized : `photos/${normalized}`;
+      const absolutePath = path.join(reportDir, relativePath);
+      if (!fsSync.existsSync(absolutePath)) {
+        return '';
+      }
+
+      return getStorageUrl(parsed.reportId, relativePath);
     },
     buildViewModel(filters = {}) {
-      const cards = parsed.cards
-        .map((card) => ({
-          ...card,
-          photos: card.photos.filter((photo) => availablePhotoSet.has(photo) || photo.startsWith('http')),
-          events: card.events.map((event) => ({
-            ...event,
-            photos: event.photos.filter((photo) => availablePhotoSet.has(photo) || photo.startsWith('http'))
-          }))
-        }))
+      const cards = displayCards
         .filter((card) => matchesFilters(card, filters));
       return {
         ...this,
@@ -995,6 +1000,64 @@ async function collectPhotoPaths(rootDir, prefix = '') {
   }
   await walk(rootDir, prefix);
   return result;
+}
+
+function normalizeStoredPhotoPath(value) {
+  return String(value || '').replace(/\\/g, '/').replace(/^\/+/, '');
+}
+
+async function buildPhotoIdentityMap(reportDir, photoPaths = []) {
+  const identities = new Map();
+  for (const photoPath of photoPaths) {
+    const normalized = normalizeStoredPhotoPath(photoPath);
+    if (!normalized || normalized.includes('://')) continue;
+    const absolutePath = path.join(reportDir, normalized);
+    try {
+      const buffer = await fs.readFile(absolutePath);
+      identities.set(normalized, `sha256:${crypto.createHash('sha256').update(buffer).digest('hex')}`);
+    } catch {
+      identities.set(normalized, normalized);
+    }
+  }
+  return identities;
+}
+
+function filterDisplayPhotos(photos = [], availablePhotoSet = new Set(), photoIdentityByPath = new Map()) {
+  const seen = new Set();
+  return toArray(photos).filter((photo) => {
+    if (typeof photo !== 'string' || !photo.trim()) return false;
+    if (photo.startsWith('http')) return true;
+    const normalized = normalizeStoredPhotoPath(photo);
+    if (!availablePhotoSet.has(normalized)) return false;
+    const identity = photoIdentityByPath.get(normalized) || normalized;
+    if (seen.has(identity)) return false;
+    seen.add(identity);
+    return true;
+  });
+}
+
+function buildDisplayCards(cards = [], availablePhotoSet = new Set(), photoIdentityByPath = new Map()) {
+  return cards.map((card) => ({
+    ...card,
+    photos: filterDisplayPhotos(card.photos, availablePhotoSet, photoIdentityByPath),
+    events: card.events.map((event) => ({
+      ...event,
+      photos: filterDisplayPhotos(event.photos, availablePhotoSet, photoIdentityByPath)
+    }))
+  }));
+}
+
+function countUniqueCardPhotos(card = {}) {
+  const photos = new Set();
+  for (const photo of toArray(card.photos)) {
+    if (typeof photo === 'string' && photo.trim()) photos.add(normalizeStoredPhotoPath(photo));
+  }
+  for (const event of toArray(card.events)) {
+    for (const photo of toArray(event && event.photos)) {
+      if (typeof photo === 'string' && photo.trim()) photos.add(normalizeStoredPhotoPath(photo));
+    }
+  }
+  return photos.size;
 }
 
 function buildFilterOptions(cards) {
@@ -1138,7 +1201,7 @@ function normalizePhotoPaths(card, reportId) {
 }
 
 function normalizeEvent(event, index, options = {}) {
-  const reserved = new Set(['eventId', 'createdBy', 'date', 'createdAt', 'time', 'timestamp', 'type', 'eventType', 'title', 'stage', 'author', 'user', 'userName', 'comment', 'message', 'photoNote', 'problem', 'problemType', 'risk', 'riskLevel', 'quantity', 'count', 'previousQuantity', 'currentQuantity', 'photos', 'photoFiles', 'photoPaths', 'images', 'photoUri', 'photoUris', 'extraFields']);
+  const reserved = new Set(['eventId', 'createdBy', 'date', 'createdAt', 'time', 'timestamp', 'type', 'eventType', 'title', 'stage', 'author', 'user', 'userName', 'comment', 'message', 'problem', 'problemType', 'risk', 'riskLevel', 'quantity', 'count', 'previousQuantity', 'currentQuantity', 'photos', 'photoFiles', 'photoPaths', 'images', 'photoUri', 'photoUris', 'extraFields']);
   const createdAt = firstString(event, ['createdAt', 'timestamp']) || firstString(event, ['date', 'time']);
   const date = firstString(event, ['date']) || createdAt;
   const time = firstString(event, ['time']) || '';
@@ -1150,7 +1213,6 @@ function normalizeEvent(event, index, options = {}) {
   const title = firstString(event, ['title']) || type;
   const stage = firstString(event, ['stage']);
   const comment = firstString(event, ['comment', 'message', 'text', 'details']);
-  const photoNote = firstString(event, ['photoNote']);
   const problem = firstString(event, ['problem']);
   const problemType = firstString(event, ['problemType']) || problem;
   const risk = firstString(event, ['risk']);
@@ -1175,7 +1237,6 @@ function normalizeEvent(event, index, options = {}) {
     stage,
     author,
     comment,
-    photoNote,
     problem,
     problemType,
     risk,
@@ -1322,7 +1383,7 @@ function deriveSummary(rawSummary, cards) {
 
   for (const card of cards) {
     summary.eventsCount += card.events.length;
-    summary.photosCount += card.photos.length + card.events.reduce((total, event) => total + event.photos.length, 0);
+    summary.photosCount += countUniqueCardPhotos(card);
     if (
       card.problem ||
       card.problemType ||
@@ -1354,6 +1415,7 @@ function deriveSummary(rawSummary, cards) {
 
   if (rawSummary && typeof rawSummary === 'object') {
     for (const key of Object.keys(summary)) {
+      if (key === 'photosCount') continue;
       const value = rawSummary[key];
       if (Number.isFinite(Number(value))) {
         summary[key] = Number(value);

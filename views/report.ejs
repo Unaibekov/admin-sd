@@ -2,6 +2,10 @@
 <%
   const reportSummary = report.summary || {};
   const cards = Array.isArray(report.cards) ? report.cards : [];
+  const visiblePlantParts = (parts) => parts.filter((part) => {
+    const text = String(part || '').trim();
+    return text && text.toLowerCase() !== 'отсутствует';
+  });
   const problemCards = cards.filter((card) => Boolean(card.problem || card.risk || (card.events || []).some((event) => event.problem || event.risk || event.problemType || event.riskLevel)));
   const stageMap = new Map();
   for (const card of cards) {
@@ -172,7 +176,7 @@
                     <div class="report-card-top">
                       <div class="report-card-main">
                         <span class="report-card-code"><%= card.code %></span>
-                        <h3><%= [card.cultureName, card.speciesName, card.varietyName].filter(Boolean).join(' · ') || 'Без названия' %></h3>
+                        <h3><%= visiblePlantParts([card.cultureName, card.speciesName, card.varietyName]).join(' · ') || 'Без названия' %></h3>
                         <div class="report-card-badges">
                           <% if (card.stage) { %><span class="badge badge-muted"><%= card.stage %></span><% } %>
                           <% if (card.batchStatus) { %><span class="badge"><%= card.batchStatus %></span><% } %>
@@ -240,7 +244,7 @@
                     </div>
                     <div class="report-side-copy">
                       <strong><%= card.code %></strong>
-                      <span><%= [card.cultureName, card.speciesName].filter(Boolean).join(' · ') || 'Без названия' %></span>
+                      <span><%= visiblePlantParts([card.cultureName, card.speciesName]).join(' · ') || 'Без названия' %></span>
                       <div class="report-side-badges">
                         <% if (card.risk) { %><span class="badge badge-muted"><%= card.risk %></span><% } %>
                         <% if (card.stage) { %><span class="badge badge-muted"><%= card.stage %></span><% } %>
@@ -295,7 +299,7 @@
               <% recentCards.forEach((card) => { %>
                 <article class="report-recent-item">
                   <strong><%= card.code %></strong>
-                  <span><%= [card.cultureName, card.speciesName, card.varietyName].filter(Boolean).join(' · ') || 'Без названия' %></span>
+                  <span><%= visiblePlantParts([card.cultureName, card.speciesName, card.varietyName]).join(' · ') || 'Без названия' %></span>
                 </article>
               <% }) %>
             </div>

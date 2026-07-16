@@ -4,6 +4,7 @@ const path = require('path');
 const { buildDashboard, buildFlashMessage } = require('./dashboardModel');
 const { buildReportsPageModel } = require('./reportsPageModel');
 const { buildJournalPageModel } = require('./journalPageModel');
+const { buildStagesPageModel } = require('./stagesPageModel');
 const {
   listReports,
   clearAllReports,
@@ -86,6 +87,24 @@ function createApp() {
         activePage: 'journal',
         showDashboardLink: loadedReports.length > 0,
         journal
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get('/stages', async (req, res, next) => {
+    try {
+      const reports = await listReports();
+      const detailedReports = await Promise.all(reports.map((report) => getReport(report.reportId)));
+      const loadedReports = detailedReports.filter(Boolean);
+      const stages = buildStagesPageModel(loadedReports, req.query);
+
+      res.render('stages', {
+        pageTitle: 'Партии',
+        activePage: 'stages',
+        showDashboardLink: loadedReports.length > 0,
+        stages
       });
     } catch (error) {
       next(error);

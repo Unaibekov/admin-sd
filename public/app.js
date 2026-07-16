@@ -1,8 +1,74 @@
 (function () {
+  const batchTabs = document.querySelector('.batch-tabs');
+  const batchPanels = Array.from(document.querySelectorAll('.batch-tab-panel'));
+  if (batchTabs && batchPanels.length) {
+    const activateBatchTab = (id) => {
+      batchTabs.querySelectorAll('a').forEach((tab) => {
+        tab.classList.toggle('active', tab.getAttribute('href') === `#${id}`);
+      });
+      batchPanels.forEach((panel) => panel.classList.toggle('active', panel.id === id));
+    };
+    batchTabs.querySelectorAll('a').forEach((tab) => {
+      tab.addEventListener('click', (event) => {
+        event.preventDefault();
+        activateBatchTab(tab.getAttribute('href').slice(1));
+      });
+    });
+    const batchParams = new URLSearchParams(window.location.search);
+    const requestedEventId = batchParams.get('eventId');
+    const requestedTab = batchParams.get('tab');
+    const hashTab = window.location.hash ? window.location.hash.slice(1) : '';
+    const initialTab = requestedEventId ? 'journal' : requestedTab || hashTab || 'calendar';
+    activateBatchTab(['calendar', 'passport', 'journal'].includes(initialTab) ? initialTab : 'calendar');
+
+    if (requestedEventId) {
+      const targetEvent = Array.from(document.querySelectorAll('[data-event-id]'))
+        .find((event) => event.dataset.eventId === requestedEventId);
+      if (targetEvent) {
+        // Let the browser finish its native #journal anchor jump before centering the event.
+        window.setTimeout(() => {
+          targetEvent.scrollIntoView({ behavior: 'auto', block: 'center' });
+          targetEvent.classList.add('batch-event-highlight');
+          window.setTimeout(() => targetEvent.classList.remove('batch-event-highlight'), 2500);
+        }, 50);
+      }
+    }
+  }
+
+  const batchesFilter = document.querySelector('[data-batches-filter]');
+  if (batchesFilter) {
+    const toggle = batchesFilter.querySelector('[data-batches-filter-toggle]');
+    const menu = batchesFilter.querySelector('[data-batches-filter-menu]');
+    const close = () => {
+      menu.hidden = true;
+      toggle.setAttribute('aria-expanded', 'false');
+    };
+    toggle.addEventListener('click', () => {
+      menu.hidden = !menu.hidden;
+      toggle.setAttribute('aria-expanded', String(!menu.hidden));
+    });
+    document.addEventListener('click', (event) => {
+      if (!batchesFilter.contains(event.target)) close();
+    });
+  }
+
+  const selectedBatch = document.querySelector('[data-selected-batch]');
+  if (selectedBatch) {
+    window.setTimeout(() => selectedBatch.scrollIntoView({ behavior: 'auto', block: 'center' }), 0);
+  }
+
   const uploadForm = document.querySelector('[data-upload-form]');
   if (uploadForm) {
     const uploadInput = uploadForm.querySelector('[data-upload-input]');
     const uploadTrigger = uploadForm.querySelector('[data-upload-trigger]');
+    const uploadLoader = document.querySelector('[data-upload-loader]');
+    const showUploadLoader = () => {
+      if (uploadLoader) uploadLoader.hidden = false;
+      if (uploadTrigger) {
+        uploadTrigger.disabled = true;
+        uploadTrigger.textContent = 'Загружаем...';
+      }
+    };
 
     if (uploadInput && uploadTrigger) {
       uploadTrigger.addEventListener('click', () => {
@@ -11,10 +77,13 @@
 
       uploadInput.addEventListener('change', () => {
         if (uploadInput.files && uploadInput.files.length > 0) {
+          showUploadLoader();
           uploadForm.requestSubmit();
         }
       });
     }
+
+    uploadForm.addEventListener('submit', showUploadLoader);
   }
 
   const tabRoot = document.querySelector('[data-dashboard-tabs]');
@@ -114,7 +183,7 @@
       const cardSearch = card.dataset.journalCardSearch || '';
       const cardSubtypes = (card.dataset.journalCardSubtypes || '').split(/\s+/).filter(Boolean);
       const stageMatches = state.stage === 'all' || (state.stage === 'important' ? card.dataset.journalCardImportant === '1' : cardStage === state.stage);
-      const employeeMatches = state.employee === 'all' || cardEmployee.toLowerCase() === state.employee.toLowerCase();
+      const employeeMatches = state.employee === 'all' || cardEmployee.split('|').some((employee) => employee.trim().toLowerCase() === state.employee.toLowerCase());
       const searchMatches = !state.search || cardSearch.includes(state.search);
       const tabMatches = state.tab === 'all' || cardSubtypes.includes(state.tab);
 
@@ -399,67 +468,21 @@
     updateView();
   }
 
-  const reportsRoot = document.querySelector('[data-reports-page]');
-  if (reportsRoot) {
-    const searchInput = reportsRoot.querySelector('[data-reports-search]');
-    const filterButtons = Array.from(reportsRoot.querySelectorAll('[data-reports-filter]'));
-    const cards = Array.from(reportsRoot.querySelectorAll('[data-reports-card]'));
-    const countBadge = reportsRoot.querySelector('[data-reports-filter-count]');
-
-    const state = {
-      search: searchInput ? searchInput.value.trim().toLowerCase() : '',
-      filter: 'all'
+  const globalJournalRoot = document.querySelector('[data-global-journal-page]');
+  if (globalJournalRoot) {
+    const period = globalJournalRoot.querySelector('[data-global-journal-period]');
+    const customRange = globalJournalRoot.querySelector('[data-global-journal-custom-range]');
+    const syncCustomRange = () => {
+      if (customRange && period) customRange.hidden = period.value !== 'custom';
     };
-
-    const matchesCard = (card) => {
-      if (!card) {
-        return false;
-      }
-
-      const status = card.dataset.reportsCardStatus || 'active';
-      const searchText = card.dataset.reportsCardSearch || '';
-      const filterMatches = state.filter === 'all' || status === state.filter;
-      const searchMatches = !state.search || searchText.includes(state.search);
-      return filterMatches && searchMatches;
-    };
-
-    const syncView = () => {
-      let visibleCount = 0;
-
-      cards.forEach((card) => {
-        const visible = matchesCard(card);
-        card.hidden = !visible;
-        if (visible) {
-          visibleCount += 1;
-        }
-      });
-
-      filterButtons.forEach((button) => {
-        const isActive = button.dataset.reportsFilter === state.filter;
-        button.classList.toggle('active', isActive);
-      });
-
-      if (countBadge) {
-        countBadge.textContent = String(visibleCount);
-      }
-
-    };
-
-    if (searchInput) {
-      searchInput.addEventListener('input', () => {
-        state.search = searchInput.value.trim().toLowerCase();
-        syncView();
-      });
-    }
-
-    filterButtons.forEach((button) => {
-      button.addEventListener('click', () => {
-        state.filter = button.dataset.reportsFilter || 'all';
-        syncView();
+    if (period) period.addEventListener('change', syncCustomRange);
+    globalJournalRoot.querySelectorAll('[data-global-journal-date]').forEach((input) => {
+      input.addEventListener('change', () => {
+        if (period) period.value = 'custom';
+        syncCustomRange();
       });
     });
-
-    syncView();
+    syncCustomRange();
   }
 
   const lightbox = document.querySelector('.lightbox');
