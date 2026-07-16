@@ -154,7 +154,7 @@
                         </div>
                       </div>
                       <div class="dashboard-event-divider" aria-hidden="true"></div>
-                      <div class="dashboard-event-main">
+                      <div class="dashboard-event-main <%= event.previewPhoto ? 'dashboard-event-main-with-photo' : '' %>">
                         <div class="dashboard-event-copy">
                           <% const details = eventDetails(event); %>
                           <% if (details.length) { %>
