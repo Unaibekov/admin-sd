@@ -143,14 +143,16 @@
                       <article class="<%= eventRowClass %>">
                     <% } %>
                       <div class="dashboard-event-head">
-                        <div class="dashboard-event-topline">
-                          <time><%= event.timestamp ? new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: 'long', timeZone: dashboardTimeZone }).format(new Date(event.timestamp)) : 'Дата не указана' %><%= event.timestamp ? ` • ${new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: dashboardTimeZone }).format(new Date(event.timestamp))}` : '' %></time>
-                          <span><%= event.createdBy %></span>
+                        <div class="dashboard-event-heading-main">
+                          <strong class="dashboard-event-title"><%= event.title %></strong>
+                          <div class="dashboard-event-context">
+                            <span class="dashboard-event-culture"><%= event.culture %></span>
+                            <span class="dashboard-event-batch"><%= event.stage %> · <%= event.code %></span>
+                          </div>
                         </div>
-                        <strong class="dashboard-event-title"><%= event.title %></strong>
-                        <div class="dashboard-event-context">
-                          <span class="dashboard-event-culture"><%= event.culture %></span>
-                          <span class="dashboard-event-batch"><%= event.code %> · <%= event.stage %></span>
+                        <div class="dashboard-event-meta">
+                          <span><%= event.createdBy %></span>
+                          <time><%= event.timestamp ? new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: 'long', timeZone: dashboardTimeZone }).format(new Date(event.timestamp)) : 'Дата не указана' %><%= event.timestamp ? ` • ${new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: dashboardTimeZone }).format(new Date(event.timestamp))}` : '' %></time>
                         </div>
                       </div>
                       <div class="dashboard-event-divider" aria-hidden="true"></div>
