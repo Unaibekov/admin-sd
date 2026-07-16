@@ -39,6 +39,16 @@ const PERIOD_OPTIONS = [
   ['custom', 'Выбрать период']
 ];
 
+const QUICK_OPTIONS = [
+  ['all', 'Все'],
+  ['important', 'Важное'],
+  ['quarantine', 'Карантин'],
+  ['problems', 'Проблемы'],
+  ['losses', 'Потери'],
+  ['sales', 'Продажи'],
+  ['photos', 'С фото']
+];
+
 function buildJournalPageModel(reports = [], query = {}) {
   const allEvents = buildGlobalJournal(reports);
   const filters = resolveFilters(query);
@@ -52,6 +62,7 @@ function buildJournalPageModel(reports = [], query = {}) {
     hasEvents: allEvents.length > 0,
     hasResults: events.length > 0,
     periodOptions: PERIOD_OPTIONS.map(([value, label]) => ({ value, label })),
+    quickOptions: QUICK_OPTIONS.map(([value, label]) => ({ value, label })),
     employeeOptions: buildEmployeeOptions(allEvents),
     categoryOptions: CATEGORY_DEFINITIONS.map(([value, label]) => ({ value, label })),
     stageOptions: ['all', ...STAGES].map((value) => ({ value, label: value === 'all' ? 'Все стадии' : value })),
@@ -219,6 +230,7 @@ function filterJournalEvents(events = [], filters = {}) {
     if (filters.quick === 'losses' && event.category !== 'losses') return false;
     if (filters.quick === 'sales' && event.category !== 'sales') return false;
     if (filters.quick === 'photos' && !event.hasPhotos) return false;
+    if (filters.quick === 'quarantine' && !isQuarantineEvent(event)) return false;
     return true;
   });
 }
@@ -259,7 +271,7 @@ function resolveFilters(query = {}) {
     category: CATEGORY_LABELS[query.category] ? String(query.category) : 'all',
     stage: STAGES.includes(String(query.stage || '').trim()) ? String(query.stage).trim() : 'all',
     query: String(query.q || '').trim(),
-    quick: ['important', 'problems', 'losses', 'sales', 'photos'].includes(String(query.quick || '')) ? String(query.quick) : 'all'
+    quick: ['important', 'problems', 'losses', 'sales', 'photos', 'quarantine'].includes(String(query.quick || '')) ? String(query.quick) : 'all'
   };
 }
 
@@ -351,6 +363,16 @@ function formatJournalEventTitle(event, category) {
     contamination: 'Контаминация', quarantine: 'Карантин', quarantinereleased: 'Снятие с карантина', problem: 'Проблема', photo: 'Фото'
   };
   return labels[type] || firstValue([event.title]) || CATEGORY_LABELS[category] || 'Событие';
+}
+
+function isQuarantineEvent(event) {
+  const type = normalizeType(event);
+  if (type === 'quarantine' || type === 'quarantinereleased') return true;
+  const text = [event.title, event.comment, event.categoryLabel, event.searchText]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return text.includes('карантин') || text.includes('quarantine');
 }
 
 function normalizePhotoUrls(report, event) {

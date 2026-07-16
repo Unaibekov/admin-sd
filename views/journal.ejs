@@ -42,6 +42,14 @@
           </select>
         </label>
         <label>
+          <span>Быстрый фильтр</span>
+          <select name="quick">
+            <% journal.quickOptions.forEach((option) => { %>
+              <option value="<%= option.value %>" <%= filters.quick === option.value ? 'selected' : '' %>><%= option.label %></option>
+            <% }) %>
+          </select>
+        </label>
+        <label>
           <span>Тип события</span>
           <select name="category">
             <% journal.categoryOptions.forEach((option) => { %>

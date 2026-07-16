@@ -135,4 +135,20 @@ run('excludes only automatically generated records from the user journal', () =>
   assert.deepEqual(events.map((event) => event.id), ['care', 'move', 'stage']);
 });
 
+run('filters quarantine events with the dedicated journal preset', () => {
+  const events = buildGlobalJournal([{
+    reportId: 'quarantine-report',
+    createdAt: '2026-07-16T10:00:00.000Z',
+    cards: [{ ...card, events: [
+      { eventId: 'problem-quarantine', type: 'problem', date: '2026-07-16T09:00:00.000Z', problemType: 'Карантин', comment: 'Изолирована партия' },
+      { eventId: 'problem-pest', type: 'problem', date: '2026-07-16T08:00:00.000Z', problemType: 'Вредители' },
+      { eventId: 'release-quarantine', type: 'quarantineReleased', date: '2026-07-16T07:00:00.000Z' }
+    ] }],
+    raw: { cards: [{ events: [{ eventId: 'problem-quarantine' }, { eventId: 'problem-pest' }, { eventId: 'release-quarantine' }] }] }
+  }]);
+  const filtered = filterJournalEvents(events, { period: 'all', employee: 'all', category: 'problems', stage: 'all', query: '', quick: 'quarantine' });
+
+  assert.deepEqual(filtered.map((event) => event.id), ['problem-quarantine', 'release-quarantine']);
+});
+
 if (process.exitCode) process.exit(process.exitCode);
