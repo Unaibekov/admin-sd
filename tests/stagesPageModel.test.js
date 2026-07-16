@@ -66,6 +66,28 @@ run('merges snapshots only when deviceId and cardId match', () => {
   assert.deepEqual(card.events.map((event) => event.eventId).sort(), ['event-a1', 'event-a2']);
 });
 
+run('prefers the newer report timestamp when same-day card snapshots have date-only updatedAt', () => {
+  const earlier = buildReport({ reportId: 'report-early', deviceId: 'device-a', updatedAt: '2026-07-15T09:00:00.000Z', quantity: 10, eventId: 'event-early' });
+  earlier.raw.cards[0].updatedAt = '2026-07-15';
+  earlier.raw.cards[0].createdAt = '2026-07-15';
+  earlier.raw.cards[0].batchStatus = 'active';
+  earlier.cards[0].updatedAt = '2026-07-15';
+  earlier.cards[0].createdAt = '2026-07-15';
+  earlier.cards[0].batchStatus = 'active';
+
+  const later = buildReport({ reportId: 'report-late', deviceId: 'device-a', updatedAt: '2026-07-15T15:00:00.000Z', quantity: 8, eventId: 'event-late' });
+  later.raw.cards[0].updatedAt = '2026-07-15';
+  later.raw.cards[0].createdAt = '2026-07-15';
+  later.raw.cards[0].batchStatus = 'quarantine';
+  later.cards[0].updatedAt = '2026-07-15';
+  later.cards[0].createdAt = '2026-07-15';
+  later.cards[0].batchStatus = 'quarantine';
+
+  const [card] = buildBatchCatalog([earlier, later]);
+  assert.equal(card.status, 'quarantine');
+  assert.equal(card.reportId, 'report-late');
+});
+
 run('selects a batch and journal tab from dashboard event query parameters', () => {
   const reports = [buildReport({ reportId: 'report-a', deviceId: 'device-a', updatedAt: '2026-06-10T09:00:00.000Z', quantity: 10, eventId: 'event-a' })];
   const model = buildStagesPageModel(reports, { cardId: '1718000000000', tab: 'journal', eventId: 'event-a' });

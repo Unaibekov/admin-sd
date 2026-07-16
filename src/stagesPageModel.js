@@ -80,7 +80,7 @@ function buildBatchCatalog(reports) {
 function normalizeCard(raw, parsed, report, index) {
   const titleParts = [raw.cultureName || parsed.culture, raw.speciesName, raw.varietyName || parsed.variety || parsed.sort].filter(isVisiblePlantPart);
   const events = Array.isArray(raw.events) ? raw.events : Array.isArray(parsed.events) ? parsed.events : [];
-  const snapshotAt = eventTime(raw.updatedAt || raw.createdAt || parsed.date || report.createdAt);
+  const snapshotAt = resolveSnapshotAt(raw, parsed, report, events);
   const currentQuantity = raw.currentQuantity ?? raw.currentCount ?? raw.remainingCount ?? parsed.currentCount ?? raw.quantity ?? parsed.initialCount;
   const initialQuantity = raw.initialQuantity ?? raw.initialCount ?? raw.quantity ?? parsed.initialCount;
   const stage = String(raw.stage || parsed.stage || '').trim() || 'Без стадии';
@@ -159,6 +159,18 @@ function deduplicateEvents(events) {
 
 function uniqueStrings(values) {
   return [...new Set((Array.isArray(values) ? values : []).filter((value) => typeof value === 'string' && value.trim()))];
+}
+
+function resolveSnapshotAt(raw, parsed, report, events) {
+  const candidates = [
+    raw && raw.updatedAt,
+    raw && raw.createdAt,
+    parsed && parsed.date,
+    report && report.createdAt,
+    ...events.map((event) => event && (event.createdAt || event.date || event.timestamp))
+  ].map(eventTime);
+
+  return candidates.reduce((latest, value) => Math.max(latest, value), 0);
 }
 
 function eventTime(value) {
