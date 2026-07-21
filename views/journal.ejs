@@ -11,10 +11,22 @@
         </div>
       </header>
 
+      <% if (journal.hasEvents) { %>
+        <section class="global-journal-summary" aria-label="Сводка по найденным событиям">
+          <span>Найдено действий: <strong><%= journal.summary.total %></strong></span>
+          <span>Проблемных действий: <strong><%= journal.summary.problems %></strong></span>
+          <span>Потеряно растений: <strong><%= journal.summary.lostPlants %></strong></span>
+          <span>Продано растений: <strong><%= journal.summary.soldPlants %></strong></span>
+          <span>Действий с фото: <strong><%= journal.summary.photos %></strong></span>
+        </section>
+      <% } %>
+
+
       <section class="global-journal-layout">
         <aside class="global-journal-filter-panel">
           <h2>Фильтры</h2>
           <form class="global-journal-filters" method="get" action="/journal">
+        <% if (journal.selectedReportId) { %><input type="hidden" name="reportId" value="<%= journal.selectedReportId %>"><% } %>
         <label class="global-journal-period">
           <span>Период</span>
           <select name="period" data-global-journal-period>
@@ -77,13 +89,6 @@
         <section class="global-journal-results">
 
           <% if (journal.hasEvents) { %>
-        <section class="global-journal-summary" aria-label="Сводка по найденным событиям">
-          <span>Найдено действий: <strong><%= journal.summary.total %></strong></span>
-          <span>Проблемных действий: <strong><%= journal.summary.problems %></strong></span>
-          <span>Потеряно растений: <strong><%= journal.summary.lostPlants %></strong></span>
-          <span>Продано растений: <strong><%= journal.summary.soldPlants %></strong></span>
-          <span>Действий с фото: <strong><%= journal.summary.photos %></strong></span>
-        </section>
 
         <% if (journal.hasResults) { %>
           <section class="global-journal-timeline" aria-label="Хронология событий">

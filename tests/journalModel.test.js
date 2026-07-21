@@ -55,7 +55,33 @@ run('uses documented operation types for categories and chronological groups', (
   const events = buildGlobalJournal(reports);
   assert.equal(getEventCategory({ type: 'greenhouseCare' }), 'care');
   assert.equal(getEventCategory({ type: 'plantingCompletion' }), 'completion');
+  assert.equal(getEventCategory({ type: 'clonedFromParent' }), 'propagation');
   assert.equal(groupEventsByDate(events).length, 2);
+});
+
+run('keeps clone relation details in the global journal', () => {
+  const journal = buildJournalPageModel([{
+    reportId: 'clone-journal-report',
+    createdAt: '2026-07-15T09:00:00.000Z',
+    cards: [{ ...card, events: [{
+      eventId: 'clone-event',
+      type: 'clonedFromParent',
+      date: '2026-07-15T09:00:00.000Z',
+      count: 12,
+      extraFields: {
+        parentCode: 'VK-PARENT',
+        childCode: 'VK-CHILD',
+        generation: 2,
+        propagationMethod: 'Черенкование'
+      }
+    }] }],
+    raw: { cards: [{ events: [{ eventId: 'clone-event' }] }] }
+  }], { category: 'propagation' });
+
+  assert.equal(journal.events.length, 1);
+  assert.equal(journal.events[0].category, 'propagation');
+  assert.ok(journal.events[0].details.some((item) => item.label === 'Родительская партия' && item.value === 'VK-PARENT'));
+  assert.ok(journal.events[0].details.some((item) => item.label === 'Дочерняя партия' && item.value === 'VK-CHILD'));
 });
 
 run('uses the report employee name instead of a technical createdBy identifier', () => {

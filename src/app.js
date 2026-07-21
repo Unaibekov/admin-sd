@@ -2,6 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const { buildDashboard, buildFlashMessage } = require('./dashboardModel');
+const { buildReportDashboardModel } = require('./reportDashboardModel');
 const { buildReportsPageModel } = require('./reportsPageModel');
 const { buildJournalPageModel } = require('./journalPageModel');
 const { buildStagesPageModel } = require('./stagesPageModel');
@@ -62,13 +63,15 @@ function createApp() {
           ? reportsPage.selectedEmployee.reports[0].reportId
           : '';
       const selectedReport = selectedReportId ? await getReport(selectedReportId) : null;
+      const reportDashboard = selectedReport ? buildReportDashboardModel(selectedReport) : null;
 
       res.render('reports', {
         pageTitle: 'Отчеты',
         activePage: 'reports',
         showDashboardLink: reports.length > 0,
         reportsPage,
-        selectedReport
+        selectedReport,
+        reportDashboard
       });
     } catch (error) {
       next(error);
@@ -80,7 +83,13 @@ function createApp() {
       const reports = await listReports();
       const detailedReports = await Promise.all(reports.map((report) => getReport(report.reportId)));
       const loadedReports = detailedReports.filter(Boolean);
-      const journal = buildJournalPageModel(loadedReports, req.query);
+      const rawRequestedReportId = String(req.query.reportId || '').trim();
+      const requestedReportId = rawRequestedReportId ? safeReportId(rawRequestedReportId) : '';
+      const journalReports = requestedReportId
+        ? loadedReports.filter((report) => report.reportId === requestedReportId)
+        : loadedReports;
+      const journal = buildJournalPageModel(journalReports, req.query);
+      journal.selectedReportId = requestedReportId;
 
       res.render('journal', {
         pageTitle: 'Журнал',
@@ -208,9 +217,11 @@ function createApp() {
       };
 
       const model = report.buildViewModel(filters);
+      const reportDashboard = buildReportDashboardModel(report);
       res.render('report', {
         pageTitle: `Отчет ${report.reportId}`,
         report: model,
+        reportDashboard,
         filters
       });
     } catch (error) {

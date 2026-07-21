@@ -446,6 +446,15 @@ function mergeCardRaw(existingCardRaw, incomingCardRaw, existingParsedCard, inco
     'problemType',
     'risk',
     'riskLevel',
+    'activeProblemQuantity',
+    'healthyQuantity',
+    'originType',
+    'parentCardId',
+    'parentCode',
+    'sourceEventId',
+    'generation',
+    'propagatedAt',
+    'propagationMethod',
     'createdAt',
     'updatedAt',
     'date',
@@ -1275,6 +1284,15 @@ function normalizeCard(card, index, reportId) {
     'problemType',
     'risk',
     'riskLevel',
+    'activeProblemQuantity',
+    'healthyQuantity',
+    'originType',
+    'parentCardId',
+    'parentCode',
+    'sourceEventId',
+    'generation',
+    'propagatedAt',
+    'propagationMethod',
     'createdAt',
     'updatedAt',
     'events',
@@ -1316,6 +1334,15 @@ function normalizeCard(card, index, reportId) {
   const problemType = firstString(card, ['problemType']) || problem;
   const risk = firstString(card, ['risk']);
   const riskLevel = firstString(card, ['riskLevel']) || risk;
+  const activeProblemQuantity = firstString(card, ['activeProblemQuantity']);
+  const healthyQuantity = firstString(card, ['healthyQuantity']);
+  const originType = firstString(card, ['originType']);
+  const parentCardId = firstString(card, ['parentCardId']);
+  const parentCode = firstString(card, ['parentCode']);
+  const sourceEventId = firstString(card, ['sourceEventId']);
+  const generation = firstString(card, ['generation']);
+  const propagatedAt = firstString(card, ['propagatedAt']);
+  const propagationMethod = firstString(card, ['propagationMethod']);
   const createdAt = firstString(card, ['createdAt', 'date', 'time']);
   const updatedAt = firstString(card, ['updatedAt']);
   const date = createdAt;
@@ -1353,6 +1380,15 @@ function normalizeCard(card, index, reportId) {
     problemType,
     risk,
     riskLevel,
+    activeProblemQuantity,
+    healthyQuantity,
+    originType,
+    parentCardId,
+    parentCode,
+    sourceEventId,
+    generation,
+    propagatedAt,
+    propagationMethod,
     createdAt,
     updatedAt,
     date,

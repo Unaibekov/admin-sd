@@ -62,7 +62,7 @@ function buildDashboard(reports = [], selectedReport = null, reportModels = [], 
     },
     attentionBatches: attentionBatches.slice(0, 5),
     employeeActivity: employeeActivity.slice(0, 5),
-    recentReports: periodReports.sort((left, right) => toTimestamp(right.createdAt) - toTimestamp(left.createdAt)).slice(0, 5).map(buildRecentReport),
+    recentReports: getLatestReportsByEmployee(periodReports),
     recentPhotos: recentPhotos.slice(0, 12),
     productionMetrics,
     current,
@@ -169,6 +169,14 @@ function normalizeDashboardEvent(rawEvent = {}, rawCard = {}, report = {}, batch
   const fromStage = firstValue(rawEvent.fromStage, rawEvent.extraFields && rawEvent.extraFields.fromStage);
   const toStage = firstValue(rawEvent.toStage, rawEvent.extraFields && rawEvent.extraFields.toStage);
   const propagationMethod = firstValue(rawEvent.propagationMethod, rawEvent.extraFields && rawEvent.extraFields.propagationMethod);
+  const childCardId = firstValue(rawEvent.childCardId, rawEvent.extraFields && rawEvent.extraFields.childCardId);
+  const childCode = firstValue(rawEvent.childCode, rawEvent.extraFields && rawEvent.extraFields.childCode);
+  const parentCardId = firstValue(rawEvent.parentCardId, rawEvent.extraFields && rawEvent.extraFields.parentCardId);
+  const parentCode = firstValue(rawEvent.parentCode, rawEvent.extraFields && rawEvent.extraFields.parentCode);
+  const generation = firstValue(rawEvent.generation, rawEvent.extraFields && rawEvent.extraFields.generation);
+  const diseaseName = firstValue(rawEvent.diseaseName, rawEvent.extraFields && rawEvent.extraFields.diseaseName);
+  const pestName = firstValue(rawEvent.pestName, rawEvent.extraFields && rawEvent.extraFields.pestName);
+  const diseaseSeverity = firstValue(rawEvent.diseaseSeverity, rawEvent.extraFields && rawEvent.extraFields.diseaseSeverity);
   const saleType = firstValue(rawEvent.saleType, rawEvent.extraFields && rawEvent.extraFields.saleType);
   const recipient = firstValue(rawEvent.recipient, rawEvent.extraFields && rawEvent.extraFields.recipient);
   const saleAmount = firstValue(rawEvent.saleAmount, rawEvent.amount, rawEvent.price, rawEvent.extraFields && rawEvent.extraFields.saleAmount, rawEvent.extraFields && rawEvent.extraFields.amount, rawEvent.extraFields && rawEvent.extraFields.price);
@@ -215,6 +223,14 @@ function normalizeDashboardEvent(rawEvent = {}, rawCard = {}, report = {}, batch
     fromStage,
     toStage,
     propagationMethod,
+    childCardId,
+    childCode,
+    parentCardId,
+    parentCode,
+    generation,
+    diseaseName,
+    pestName,
+    diseaseSeverity,
     saleType,
     recipient,
     saleAmount,
@@ -416,9 +432,11 @@ function buildDistributionChart(batches = [], mode) {
 function buildRecentReport(report) {
   const summary = report.summary || {};
   const user = report.user || {};
+  const author = firstValue(user.displayName, [user.firstName, user.lastName].filter(Boolean).join(' '), report.author) || 'Автор не указан';
   return {
     reportId: report.reportId,
-    author: firstValue(user.displayName, [user.firstName, user.lastName].filter(Boolean).join(' '), report.author) || 'Автор не указан',
+    author,
+    employeeKey: normalizeText(author),
     role: user.role || 'Роль не указана',
     displayCreatedAt: report.displayCreatedAt || formatDateTime(toTimestamp(report.createdAt)),
     summary: {
@@ -428,6 +446,23 @@ function buildRecentReport(report) {
       problemsCount: Number(summary.problemCount ?? summary.problemsCount) || 0
     }
   };
+}
+
+function getLatestReportsByEmployee(reports = []) {
+  const latestByEmployee = new Map();
+
+  for (const sourceReport of reports) {
+    const report = buildRecentReport(sourceReport);
+    const current = latestByEmployee.get(report.employeeKey);
+    if (!current || toTimestamp(sourceReport.createdAt) > current.createdAt) {
+      latestByEmployee.set(report.employeeKey, { ...report, createdAt: toTimestamp(sourceReport.createdAt) });
+    }
+  }
+
+  return [...latestByEmployee.values()]
+    .sort((left, right) => right.createdAt - left.createdAt)
+    .slice(0, 5)
+    .map(({ createdAt, ...report }) => report);
 }
 
 function resolvePeriod(value) {
@@ -477,7 +512,7 @@ function formatStatus(value) {
 }
 
 function formatEventTitle(type) {
-  return ({ problem: 'Проблема', contamination: 'Контаминация', quarantine: 'Карантин', sale: 'Продажа', introloss: 'Потери', loss: 'Потери', death: 'Гибель', discard: 'Списание', propagation: 'Размножение', planting: 'Высадка', stagechange: 'Изменение стадии', movement: 'Перемещение', greenhousedisease: 'Болезнь', greenhousecare: 'Уход', adaptationcare: 'Уход', hardeningcare: 'Уход', plantingcare: 'Уход' })[type] || 'Событие';
+  return ({ problem: 'Проблема', contamination: 'Контаминация', quarantine: 'Карантин', sale: 'Продажа', introloss: 'Потери', loss: 'Потери', death: 'Гибель', discard: 'Списание', propagation: 'Размножение', clonedfromparent: 'Создание клона', planting: 'Высадка', stagechange: 'Изменение стадии', movement: 'Перемещение', greenhousedisease: 'Болезнь', greenhousecare: 'Уход', adaptationcare: 'Уход', hardeningcare: 'Уход', plantingcare: 'Уход' })[type] || 'Событие';
 }
 
 function buildEmployeeDirectory(reports) {
@@ -572,5 +607,6 @@ module.exports = {
   getProductionMetrics,
   getRecentPhotos,
   resolvePeriod,
+  isUserInitiatedEvent,
   buildCurrentDashboardSnapshot
 };

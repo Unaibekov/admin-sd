@@ -89,6 +89,15 @@ function normalizeCard(raw, parsed, report, index) {
   const location = raw.locationDescription || raw.location || raw.place || parsed.location || '';
   const problemType = raw.problemType || raw.problem || parsed.problemType || parsed.problem || '';
   const riskLevel = raw.riskLevel || raw.risk || parsed.riskLevel || parsed.risk || '';
+  const activeProblemQuantity = raw.activeProblemQuantity ?? parsed.activeProblemQuantity ?? '';
+  const healthyQuantity = raw.healthyQuantity ?? parsed.healthyQuantity ?? '';
+  const originType = raw.originType || parsed.originType || '';
+  const parentCardId = raw.parentCardId || parsed.parentCardId || '';
+  const parentCode = raw.parentCode || parsed.parentCode || '';
+  const sourceEventId = raw.sourceEventId || parsed.sourceEventId || '';
+  const generation = raw.generation ?? parsed.generation ?? '';
+  const propagatedAt = raw.propagatedAt || parsed.propagatedAt || '';
+  const propagationMethod = raw.propagationMethod || parsed.propagationMethod || '';
   const code = String(raw.code || parsed.code || `card-${index + 1}`);
   const cardId = String(raw.cardId || parsed.cardId || code);
   const deviceId = String(report.deviceId || '').trim();
@@ -109,6 +118,15 @@ function normalizeCard(raw, parsed, report, index) {
     sterilityStatus,
     problemType,
     riskLevel,
+    activeProblemQuantity,
+    healthyQuantity,
+    originType,
+    parentCardId,
+    parentCode,
+    sourceEventId,
+    generation,
+    propagatedAt,
+    propagationMethod,
     cancelledAt: raw.cancelledAt || '',
     currentQuantity,
     initialQuantity,
@@ -119,7 +137,7 @@ function normalizeCard(raw, parsed, report, index) {
     reportId: report.reportId,
     events: eventList,
     photoFiles: uniqueStrings([...(raw.photoFiles || []), ...(raw.photos || [])]),
-    searchText: [cardId, code, deviceId, ...titleParts, stage, status, location].join(' ').toLowerCase()
+    searchText: [cardId, code, deviceId, ...titleParts, stage, status, location, originType, parentCode, propagationMethod].join(' ').toLowerCase()
   };
 }
 
@@ -136,6 +154,7 @@ function buildBatchKey(deviceId, cardId, reportId) {
 
 function normalizeEvent(event, reportId) {
   const photos = uniqueStrings([...(event.photoFiles || []), ...(event.photos || []), ...(event.photoPaths || [])]);
+  const extraFields = event.extraFields && typeof event.extraFields === 'object' ? event.extraFields : {};
   return {
     eventId: String(event.eventId || `${reportId}-${event.createdAt || event.date || event.type}`),
     title: String(event.title || event.type || 'Событие'),
@@ -143,8 +162,22 @@ function normalizeEvent(event, reportId) {
     createdAt: event.createdAt || event.date || event.timestamp || '',
     count: event.currentQuantity ?? event.count ?? event.quantity ?? '',
     previousQuantity: event.previousQuantity ?? '',
+    currentQuantity: event.currentQuantity ?? '',
+    quantity: event.quantity ?? event.count ?? '',
+    propagationMethod: event.propagationMethod || extraFields.propagationMethod || '',
+    childCardId: event.childCardId || extraFields.childCardId || '',
+    childCode: event.childCode || extraFields.childCode || '',
+    parentCardId: event.parentCardId || extraFields.parentCardId || '',
+    parentCode: event.parentCode || extraFields.parentCode || '',
+    sourceEventId: event.sourceEventId || extraFields.sourceEventId || '',
+    generation: event.generation ?? extraFields.generation ?? '',
+    diseaseName: event.diseaseName || extraFields.diseaseName || '',
+    pestName: event.pestName || extraFields.pestName || '',
+    diseaseSeverity: event.diseaseSeverity || extraFields.diseaseSeverity || '',
+    affectedQuantity: event.affectedQuantity ?? extraFields.affectedQuantity ?? '',
+    recoveredQuantity: event.recoveredQuantity ?? extraFields.recoveredQuantity ?? '',
     comment: event.comment || event.message || '',
-    extraFields: event.extraFields && typeof event.extraFields === 'object' ? event.extraFields : {},
+    extraFields,
     photos
   };
 }

@@ -1,0 +1,48 @@
+<header class="report-dashboard-head">
+  <div><h1>Отчет</h1><p>Сводная информация по выбранному импортированному отчету.</p></div>
+  <aside class="report-dashboard-info" aria-label="Информация об отчете">
+    <div class="report-dashboard-info-person"><strong><%= reportDashboard.employee.name %></strong><span><%= reportDashboard.employee.role %></span><span><%= reportDashboard.employee.department %></span></div>
+    <dl>
+      <div><dt>Дата импорта</dt><dd><%= reportDashboard.importDate %></dd></div>
+      <div><dt>Время импорта</dt><dd><%= reportDashboard.importTime %></dd></div>
+      <div><dt>Карточек</dt><dd><%= reportDashboard.summary.cardsCount %></dd></div>
+      <div><dt>Событий</dt><dd><%= reportDashboard.summary.eventsCount %></dd></div>
+      <div><dt>Фотографий</dt><dd><%= reportDashboard.summary.photosCount %></dd></div>
+    </dl>
+  </aside>
+</header>
+
+<section class="dashboard-stats dashboard-stats-top report-dashboard-stats" aria-label="Показатели отчета">
+  <%- include('dashboard-kpis', { metrics: reportDashboard.topMetrics }) %>
+</section>
+
+<section class="report-dashboard-grid">
+<article class="dashboard-card dashboard-recent-events-card report-dashboard-section">
+  <div class="dashboard-card-head"><div><h2>События отчета</h2><p>Последние действия только из этого импортированного отчета.</p></div><a class="dashboard-card-link" href="/journal?reportId=<%= encodeURIComponent(report.reportId) %>">Показать все</a></div>
+  <%- include('dashboard-event-feed', { events: reportDashboard.recentEvents, emptyText: 'В этом отчете пока нет событий.', eventHref: (event) => event.cardId ? `/stages?batchId=${encodeURIComponent(event.batchKey)}&tab=journal${event.eventId ? `&eventId=${encodeURIComponent(event.eventId)}` : ''}#journal` : '' }) %>
+</article>
+
+<article class="dashboard-card report-dashboard-section">
+  <div class="dashboard-card-head"><div><h2>Проблемные партии отчета</h2><p>Только партии с проблемами из выбранного отчета.</p></div><a class="dashboard-card-link" href="/journal?reportId=<%= encodeURIComponent(report.reportId) %>&category=problems">Все проблемы</a></div>
+  <%- include('dashboard-event-feed', { events: reportDashboard.attentionEvents, feedClass: 'dashboard-attention-list', forceAttention: true, emptyText: 'В этом отчете нет проблемных партий.', eventHref: (event) => event.batchKey ? `/stages?batchId=${encodeURIComponent(event.batchKey)}` : '' }) %>
+</article>
+
+<article class="dashboard-card report-dashboard-section">
+  <div class="dashboard-card-head"><div><h2>Карточки партии</h2><p>Партии, которые входят в выбранный отчет.</p></div><a class="dashboard-card-link" href="/stages">Все партии</a></div>
+  <% if (reportDashboard.batches.length) { %>
+    <div class="report-dashboard-batches">
+      <% reportDashboard.batches.forEach((batch) => { %>
+        <a class="batch-list-card report-dashboard-batch-card" href="/stages?batchId=<%= encodeURIComponent(batch.batchKey) %>">
+          <span class="batch-list-status"></span>
+          <span class="batch-list-copy"><strong><%= batch.title %></strong><small><%= batch.code %> · <%= batch.stage %></small><small>Остаток: <%= batch.currentQuantity || '—' %> шт. · Событий: <%= batch.events.length %></small></span>
+        </a>
+      <% }) %>
+    </div>
+  <% } else { %><div class="dashboard-inline-empty">В этом отчете нет карточек партий.</div><% } %>
+</article>
+
+<article class="dashboard-card dashboard-gallery-card report-dashboard-section">
+  <div class="dashboard-card-head"><div><h2>Фотографии отчета</h2><p>Фотографии, прикрепленные к событиям и карточкам этого отчета.</p></div></div>
+  <%- include('dashboard-gallery', { photos: reportDashboard.recentPhotos, emptyText: 'В этом отчете нет фотографий.' }) %>
+</article>
+</section>

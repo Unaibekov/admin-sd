@@ -1,0 +1,26 @@
+<%
+  const metricIcon = (key) => {
+    const icons = {
+      active: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V10m0 5c-4.2 0-7-2.5-7-6.8C8.6 8.2 11 10.7 12 15Zm0-9.5c.9-3 3.2-4.5 6.8-4.5 0 3.9-2.4 6.5-6.8 6.5Z"/></svg>',
+      cards: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-13ZM8 8h8M8 12h8M8 16h5"/></svg>',
+      events: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4v16m0-8h14M9 7h7M9 17h7"/></svg>',
+      attention: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2.8 20h18.4L12 3Zm0 6v4m0 3h.01"/></svg>',
+      problems: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2.8 20h18.4L12 3Zm0 6v4m0 3h.01"/></svg>',
+      quarantine: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.7 2.9 8.2 7 10 4.1-1.8 7-5.3 7-10V6l-7-3Zm-3 9h6m-3-3v6"/></svg>',
+      losses: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 6v12m10-12v12M5 18h14M9 10l3 3 3-3"/></svg>',
+      sales: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M7 7v12h10V7M9 11h6"/></svg>',
+      photos: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2"/><circle cx="9" cy="10" r="1"/><path d="m5 17 4-4 3 3 2-2 5 4"/></svg>',
+      employees: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 20v-1.5c0-2-1.8-3.5-4-3.5s-4 1.5-4 3.5V20m4-9a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm6 9v-1.5c0-1.4-.8-2.6-2-3.2M17 5.2a3 3 0 0 1 0 5.6M6 15.3a3.5 3.5 0 0 0-2 3.2V20"/></svg>'
+    };
+    return icons[key] || icons.cards;
+  };
+%>
+<% (metrics || []).forEach((metric) => { %>
+  <% const tag = metric.href ? 'a' : 'article'; %>
+  <<%= tag %> class="dashboard-stat dashboard-stat-<%= metric.tone %>" <%- metric.href ? `href="${metric.href}"` : '' %>>
+    <span class="dashboard-stat-icon"><%- metricIcon(metric.key) %></span>
+    <span class="dashboard-stat-label"><%= metric.label %></span>
+    <strong><%= metric.value %></strong>
+    <small><%= metric.note %></small>
+  </<%= tag %>>
+<% }) %>

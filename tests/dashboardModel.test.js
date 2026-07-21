@@ -549,7 +549,14 @@ run('uses propagation remaining quantity, method and comment', () => {
       count: 1500,
       currentQuantity: 3623,
       comment: 'Хорошо размножились',
-      extraFields: { propagationMethod: 'Черенкование' }
+      extraFields: {
+        propagationMethod: 'Черенкование',
+        childCardId: 'child-card-1',
+        childCode: 'VK-CHILD',
+        parentCardId: 'parent-card-1',
+        parentCode: 'VK-PARENT',
+        generation: 2
+      }
     }]
   }])];
 
@@ -557,7 +564,23 @@ run('uses propagation remaining quantity, method and comment', () => {
   assert.equal(dashboard.recentEvents[0].quantity, 1500);
   assert.equal(dashboard.recentEvents[0].currentQuantity, 3623);
   assert.equal(dashboard.recentEvents[0].propagationMethod, 'Черенкование');
+  assert.equal(dashboard.recentEvents[0].childCode, 'VK-CHILD');
+  assert.equal(dashboard.recentEvents[0].parentCode, 'VK-PARENT');
+  assert.equal(dashboard.recentEvents[0].generation, '2');
   assert.equal(dashboard.recentEvents[0].comment, 'Хорошо размножились');
+});
+
+run('keeps only the latest report for each employee in the dashboard reports block', () => {
+  const older = report('older', '2026-07-15T09:00:00.000Z', []);
+  const newer = report('newer', '2026-07-15T12:00:00.000Z', []);
+  const other = report('other', '2026-07-15T10:00:00.000Z', []);
+  older.user.displayName = 'Ильдар Унайбеков';
+  newer.user.displayName = 'Ильдар Унайбеков';
+  other.user.displayName = 'Мария Иванова';
+
+  const dashboard = buildDashboard([older, newer, other], newer, [older, newer, other], { period: 'all' });
+  assert.equal(dashboard.recentReports.length, 2);
+  assert.equal(dashboard.recentReports.find((item) => item.author === 'Ильдар Унайбеков').reportId, 'newer');
 });
 
 if (process.exitCode) process.exit(process.exitCode);

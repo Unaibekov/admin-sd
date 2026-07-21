@@ -111,6 +111,43 @@ run('hides technical missing plant names from batch titles', () => {
   assert.equal(card.variety, '');
 });
 
+run('keeps clone origin and related propagation fields in batch model', () => {
+  const report = buildReport({ reportId: 'report-clone', deviceId: 'device-a', updatedAt: '2026-07-15T09:00:00.000Z', quantity: 12, eventId: 'propagation-event' });
+  Object.assign(report.raw.cards[0], {
+    originType: 'cloned',
+    parentCardId: 'parent-card-1',
+    parentCode: 'VK-PARENT',
+    generation: 2,
+    propagatedAt: '2026-07-15T09:00:00.000Z',
+    propagationMethod: 'Черенкование',
+    activeProblemQuantity: 3,
+    healthyQuantity: 9,
+    events: [{
+      eventId: 'propagation-event',
+      type: 'propagation',
+      createdAt: '2026-07-15T09:00:00.000Z',
+      count: 12,
+      childCardId: 'child-card-1',
+      childCode: 'VK-CHILD',
+      parentCardId: 'parent-card-1',
+      parentCode: 'VK-PARENT',
+      generation: 2,
+      propagationMethod: 'Черенкование'
+    }]
+  });
+  report.cards[0] = { ...report.raw.cards[0] };
+
+  const [card] = buildBatchCatalog([report]);
+  assert.equal(card.originType, 'cloned');
+  assert.equal(card.parentCode, 'VK-PARENT');
+  assert.equal(card.generation, 2);
+  assert.equal(card.propagationMethod, 'Черенкование');
+  assert.equal(card.activeProblemQuantity, 3);
+  assert.equal(card.healthyQuantity, 9);
+  assert.equal(card.events[0].childCode, 'VK-CHILD');
+  assert.equal(card.events[0].parentCode, 'VK-PARENT');
+});
+
 if (process.exitCode) {
   process.exit(process.exitCode);
 }

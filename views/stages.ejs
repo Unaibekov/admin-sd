@@ -103,6 +103,17 @@
                   <article><h4>Сводка</h4><dl><dt>Статус партии</dt><dd><%= selected.status %></dd><dt>Исходное количество</dt><dd><%= selected.initialQuantity || '—' %> шт.</dd><dt>Текущий остаток</dt><dd><%= selected.currentQuantity || '—' %> шт.</dd></dl></article>
                   <article><h4>Культура</h4><dl><dt>Культура</dt><dd><%= selected.culture || '—' %></dd><dt>Вид</dt><dd><%= selected.species || '—' %></dd><dt>Сорт</dt><dd><%= selected.variety || '—' %></dd></dl></article>
                   <article><h4>Размещение</h4><dl><dt>Местоположение</dt><dd><%= selected.location || '—' %></dd></dl></article>
+                  <% if (selected.originType || selected.parentCode || selected.generation || selected.propagationMethod || selected.activeProblemQuantity || selected.healthyQuantity) { %>
+                    <article><h4>Происхождение и состояние</h4><dl>
+                      <% if (selected.originType) { %><dt>Тип происхождения</dt><dd><%= selected.originType === 'cloned' ? 'Клон' : selected.originType %></dd><% } %>
+                      <% if (selected.parentCode || selected.parentCardId) { %><dt>Родительская партия</dt><dd><% if (selected.parentCardId) { %><a href="/stages?cardId=<%= encodeURIComponent(selected.parentCardId) %>&tab=passport"><%= selected.parentCode || selected.parentCardId %></a><% } else { %><%= selected.parentCode %><% } %></dd><% } %>
+                      <% if (selected.generation) { %><dt>Поколение</dt><dd><%= selected.generation %></dd><% } %>
+                      <% if (selected.propagationMethod) { %><dt>Способ размножения</dt><dd><%= selected.propagationMethod %></dd><% } %>
+                      <% if (selected.propagatedAt) { %><dt>Дата размножения</dt><dd><%= new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(selected.propagatedAt)) %></dd><% } %>
+                      <% if (selected.healthyQuantity !== '') { %><dt>Здоровых растений</dt><dd><%= selected.healthyQuantity %> шт.</dd><% } %>
+                      <% if (selected.activeProblemQuantity !== '') { %><dt>С проблемой</dt><dd><%= selected.activeProblemQuantity %> шт.</dd><% } %>
+                    </dl></article>
+                  <% } %>
                   <article><h4>Служебная информация</h4><dl><dt>Код партии</dt><dd><%= selected.code %></dd><dt>Создана</dt><dd><%= selected.createdAt ? new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(selected.createdAt)) : '—' %></dd></dl></article>
                 </div>
               </section>
@@ -110,7 +121,10 @@
               <section class="batch-tab-panel" id="journal">
                 <div class="detail-section-head"><div><p class="eyebrow">Хронология</p><h3>Журнал</h3></div></div>
                 <div class="batch-journal-list">
-                  <% selected.events.forEach((event) => { %><article data-event-id="<%= event.eventId %>"><time><%= event.createdAt ? new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(event.createdAt)) : '—' %></time><div><strong><%= event.title %></strong><p><%= event.comment || '' %></p><small><%= event.type %></small></div></article><% }) %>
+                  <% selected.events.forEach((event) => { %><article data-event-id="<%= event.eventId %>"><time><%= event.createdAt ? new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(event.createdAt)) : '—' %></time><div><strong><%= event.title %></strong><p><%= event.comment || '' %></p>
+                    <% const eventDetails = []; const pushEventDetail = (label, value, suffix = '') => { if (value !== undefined && value !== null && value !== '' && value !== 0 && value !== '0') eventDetails.push([label, `${value}${suffix}`]); }; pushEventDetail('Дочерняя партия', event.childCode || event.childCardId); pushEventDetail('Родительская партия', event.parentCode || event.parentCardId); pushEventDetail('Поколение', event.generation); pushEventDetail('Способ размножения', event.propagationMethod); pushEventDetail('Болезнь', event.diseaseName); pushEventDetail('Вредитель', event.pestName); pushEventDetail('Степень поражения', event.diseaseSeverity); pushEventDetail('Затронуто', event.affectedQuantity, ' шт.'); pushEventDetail('Выздоровело', event.recoveredQuantity, ' шт.'); %>
+                    <% if (eventDetails.length) { %><dl class="batch-event-details"><% eventDetails.forEach(([label, value]) => { %><dt><%= label %></dt><dd><%= value %></dd><% }) %></dl><% } %>
+                    <small><%= event.type %></small></div></article><% }) %>
                 </div>
               </section>
             </div>

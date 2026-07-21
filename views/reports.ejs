@@ -1,0 +1,36 @@
+<%- include('partials/head', { pageTitle }) %>
+<div class="app-shell">
+  <%- include('partials/sidebar', { activePage: 'reports', showDashboardLink }) %>
+
+  <main class="app-main app-main-report-dashboard">
+    <section class="report-dashboard-page">
+      <div class="report-dashboard-shell">
+        <% if (!reportsPage.hasEmployees) { %>
+          <header class="report-dashboard-head"><div><h1>Отчет</h1><p>Загрузите импортированный отчет, чтобы посмотреть сводную информацию.</p></div></header>
+        <% } else { %>
+          <header class="report-dashboard-head reports-selection-head">
+            <div><h1>Отчет</h1><p>Выберите сотрудника, чтобы открыть сводную информацию по его последнему импортированному отчету.</p></div>
+          </header>
+          <section class="dashboard-card reports-employee-picker" aria-label="Выбор сотрудника">
+            <div class="dashboard-card-head"><div><h2>Сотрудник</h2><p>Сотрудники с импортированными отчетами.</p></div></div>
+            <div class="reports-employee-list">
+              <% reportsPage.employees.forEach((employee) => { %>
+                <a class="dashboard-report-row <%= reportsPage.selectedEmployeeKey === employee.key ? 'active' : '' %>" href="/reports?employee=<%= encodeURIComponent(employee.key) %>">
+                  <div class="dashboard-report-main"><strong><%= employee.label %></strong><span>Последний импорт: <%= employee.latestReportDate || 'не указан' %></span></div>
+                  <div class="dashboard-report-pills"><span><%= employee.reports.length %> отчетов</span><span><%= employee.cardsCount %> карточек</span><span><%= employee.eventsCount %> событий</span></div>
+                </a>
+              <% }) %>
+            </div>
+          </section>
+
+          <% if (selectedReport && reportDashboard) { %>
+            <%- include('partials/report-dashboard-content', { report: selectedReport, reportDashboard }) %>
+          <% } else { %>
+            <div class="dashboard-inline-empty reports-selection-empty">Выберите сотрудника, чтобы открыть его отчет.</div>
+          <% } %>
+        <% } %>
+      </div>
+    </section>
+  </main>
+</div>
+<%- include('partials/footer') %>

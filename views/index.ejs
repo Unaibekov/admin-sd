@@ -114,15 +114,7 @@
           </header>
 
           <section class="dashboard-stats dashboard-stats-top" aria-label="Основные показатели">
-            <% dashboard.topMetrics.forEach((metric) => { %>
-              <% const tag = metric.href ? 'a' : 'article'; %>
-              <<%= tag %> class="dashboard-stat dashboard-stat-<%= metric.tone %>" <%- metric.href ? `href="${metric.href}"` : '' %>>
-                <span class="dashboard-stat-icon"><%- metricIcon(metric.key) %></span>
-                <span class="dashboard-stat-label"><%= metric.label %></span>
-                <strong><%= metric.value %></strong>
-                <small><%= metric.note %></small>
-              </<%= tag %>>
-            <% }) %>
+            <%- include('partials/dashboard-kpis', { metrics: dashboard.topMetrics }) %>
           </section>
 
           <section class="dashboard-layout">
@@ -214,21 +206,17 @@
 
           <section class="dashboard-grid dashboard-grid-secondary">
             <article class="dashboard-card dashboard-reports-card">
-              <div class="dashboard-card-head"><div><h2>Последние отчеты</h2><p>Загружены за период</p></div><a href="/reports" class="dashboard-card-link">Все отчеты</a></div>
+              <div class="dashboard-card-head"><div><h2>Последние отчеты</h2><p>Последний импорт каждого сотрудника</p></div><a href="/reports" class="dashboard-card-link">Все отчеты</a></div>
               <% if (dashboard.recentReports.length) { %>
                 <div class="dashboard-reports">
-                  <% dashboard.recentReports.forEach((report) => { %><a class="dashboard-report-row" href="/reports/<%= encodeURIComponent(report.reportId) %>"><div class="dashboard-report-main"><strong><%= report.author %></strong><span><%= report.role %> · <%= report.displayCreatedAt %></span></div><div class="dashboard-report-pills"><span><%= report.summary.cardsCount %> партий</span><span><%= report.summary.eventsCount %> событий</span><span><%= report.summary.photosCount %> фото</span><span><%= report.summary.problemsCount %> проблем</span></div></a><% }) %>
+                  <% dashboard.recentReports.forEach((report) => { %><a class="dashboard-report-row" href="/reports?employee=<%= encodeURIComponent(report.employeeKey) %>"><div class="dashboard-report-main"><strong><%= report.author %></strong><span><%= report.role %> · <%= report.displayCreatedAt %></span></div><div class="dashboard-report-pills"><span><%= report.summary.cardsCount %> партий</span><span><%= report.summary.eventsCount %> событий</span><span><%= report.summary.photosCount %> фото</span><span><%= report.summary.problemsCount %> проблем</span></div></a><% }) %>
                 </div>
               <% } else { %><div class="dashboard-inline-empty">За выбранный период отчетов нет.</div><% } %>
             </article>
 
             <article class="dashboard-card dashboard-gallery-card">
               <div class="dashboard-card-head"><div><h2>Последние фото</h2><p>Из событий за период</p></div></div>
-              <% if (dashboard.recentPhotos.length) { %>
-                <div class="dashboard-gallery dashboard-gallery-managed">
-                  <% dashboard.recentPhotos.forEach((photo) => { %><button type="button" class="dashboard-thumb" data-photo-url="<%= photo.url %>" data-photo-label="<%= photo.label %>, <%= photo.dateLabel %>, <%= photo.createdBy %>"><span class="dashboard-thumb-image"><img src="<%= photo.url %>" alt="<%= photo.label %>" loading="lazy"></span><span class="dashboard-thumb-caption"><strong><%= photo.code %></strong><span><%= photo.eventTitle %> · <%= photo.dateLabel %></span><em><%= photo.createdBy %></em></span></button><% }) %>
-                </div>
-              <% } else { %><div class="dashboard-inline-empty">За выбранный период фотографий нет.</div><% } %>
+              <%- include('partials/dashboard-gallery', { photos: dashboard.recentPhotos, emptyText: 'За выбранный период фотографий нет.' }) %>
             </article>
           </section>
 

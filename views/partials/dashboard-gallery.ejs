@@ -1,0 +1,12 @@
+<% if (photos && photos.length) { %>
+  <div class="dashboard-gallery dashboard-gallery-managed">
+    <% photos.forEach((photo) => { %>
+      <button type="button" class="dashboard-thumb" data-photo-url="<%= photo.url %>" data-photo-label="<%= photo.label %><%= photo.dateLabel ? `, ${photo.dateLabel}` : '' %><%= photo.createdBy ? `, ${photo.createdBy}` : '' %>">
+        <span class="dashboard-thumb-image"><img src="<%= photo.url %>" alt="<%= photo.label %>" loading="lazy"></span>
+        <span class="dashboard-thumb-caption"><strong><%= photo.code %></strong><span><%= photo.eventTitle %><%= photo.dateLabel ? ` · ${photo.dateLabel}` : '' %></span><% if (photo.createdBy) { %><em><%= photo.createdBy %></em><% } %></span>
+      </button>
+    <% }) %>
+  </div>
+<% } else { %>
+  <div class="dashboard-inline-empty"><%= emptyText || 'Фотографий пока нет.' %></div>
+<% } %>

@@ -1,0 +1,63 @@
+<%
+  const getEventUrl = typeof eventHref === 'function' ? eventHref : () => '';
+  const resolvedFeedClass = typeof feedClass === 'string' && feedClass ? feedClass : 'dashboard-event-feed';
+  const shouldForceAttention = typeof forceAttention !== 'undefined' && Boolean(forceAttention);
+  const eventDetails = (event) => {
+    const items = [];
+    const push = (label, value, suffix = '') => {
+      const text = typeof value === 'number' ? String(value) : String(value || '').trim();
+      if (text) items.push(`${label}: ${text}${suffix}`);
+    };
+    if (['loss', 'introloss', 'death', 'discard', 'writeoff'].includes(event.type) && event.quantity) {
+      push('Потеряно', event.quantity, ' шт.'); push('Было', event.previousQuantity, ' шт.'); push('Остаток', event.currentQuantity, ' шт.'); push('Причина', event.reason);
+    } else if (event.type === 'sale') {
+      push('Продано', event.quantity, ' шт.'); push('Было', event.previousQuantity || event.totalQuantity, ' шт.'); push('Остаток', event.currentQuantity, ' шт.'); push('Тип реализации', event.saleType); push('Получатель', event.recipient); push('Стоимость', event.saleAmount); push('Комментарий', event.comment);
+    } else if (event.type === 'propagation' || event.type === 'clonedfromparent') {
+      push('Дочерняя партия', event.childCode || event.childCardId); push('Родительская партия', event.parentCode || event.parentCardId); push('Поколение', event.generation);
+      push('Размножено', event.quantity, ' шт.'); push('Остаток', event.currentQuantity, ' шт.'); push('Способ размножения', event.propagationMethod); push('Комментарий', event.comment);
+    } else if (event.type === 'rooting') {
+      push('Количество', event.quantity ? `${event.quantity}${event.totalQuantity ? ` из ${event.totalQuantity}` : ''}` : '', ' шт.'); push('Комментарий', event.comment);
+    } else if (['adaptationcare', 'greenhousecare', 'hardeningcare', 'plantingcare'].includes(event.type)) {
+      push('Тип ухода', event.careType); push('Препарат', event.productName); push('Дозировка', event.dosage); push('Способ внесения', event.applicationMethod); push('Реакция растений', event.plantReaction); push('Комментарий', event.comment);
+    } else if (['adaptationstress', 'greenhouseobservation', 'hardeningobservation', 'plantingobservation'].includes(event.type)) {
+      push('Уровень стресса', event.stressLevel); push('Тургор', event.turgor); push('Комментарий', event.comment);
+    } else if (event.type === 'transplant') {
+      push('Количество', event.quantity, ' шт.'); push('Размещение', event.placement); push('Плотность', event.densityChange); push('Комментарий', event.comment);
+    } else if (event.type === 'plantingcompletion') {
+      push('Итог высадки', event.completionResult); push('Комментарий', event.comment);
+    } else if (event.type === 'planting') {
+      push('Высажено', event.quantity, ' шт.'); push('Место высадки', event.plantingLocation); push('Схема посадки', event.plantingScheme); push('Площадь / участок', event.plotArea); push('Тип грунта', event.soilType); push('Комментарий', event.comment);
+    } else if (event.type === 'movement') {
+      push('Местоположение', event.location); push('Комментарий', event.comment);
+    } else if (event.type === 'stagechange') {
+      if (event.fromStage && event.toStage) push('Стадия', `${event.fromStage} → ${event.toStage}`); push('Остаток', event.currentQuantity, ' шт.');
+    } else if (event.type === 'problem') {
+      push('Болезнь', event.diseaseName); push('Вредитель', event.pestName); push('Степень поражения', event.diseaseSeverity);
+      push('Тип проблемы', event.problem); push('Уровень риска', event.risk); push('Описание проблемы', event.problemDescription);
+    } else if (event.risk) {
+      push('Риск', event.risk);
+    } else if (event.comment) {
+      push('Комментарий', event.comment);
+    }
+    return items;
+  };
+  const isLongEventDetail = (text) => String(text || '').length > 42;
+  const dashboardTimeZone = 'Europe/Moscow';
+%>
+<% if (events && events.length) { %>
+  <div class="<%= resolvedFeedClass %>">
+    <% events.forEach((event) => { %>
+      <% const eventUrl = getEventUrl(event); %>
+      <% const eventIsAttention = shouldForceAttention || ['problem', 'quarantine', 'contamination', 'greenhousedisease'].includes(event.type) || event.problem || event.risk; %>
+      <% const eventRowClass = `dashboard-simple-event-row${eventIsAttention ? ' dashboard-simple-event-row-attention' : ''}`; %>
+      <% if (eventUrl) { %><a class="<%= eventRowClass %>" href="<%= eventUrl %>" aria-label="Открыть событие «<%= event.title %>» партии <%= event.code %>"><% } else { %><article class="<%= eventRowClass %>"><% } %>
+        <div class="dashboard-simple-event-head"><div class="dashboard-simple-event-top"><strong class="dashboard-event-title"><%= event.title %></strong><span class="dashboard-simple-event-meta"><time><%= event.timestamp ? new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: 'long', timeZone: dashboardTimeZone }).format(new Date(event.timestamp)) : 'Дата не указана' %><%= event.timestamp ? ` · ${new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: dashboardTimeZone }).format(new Date(event.timestamp))}` : '' %></time><%= event.createdBy ? ` · ${event.createdBy}` : '' %></span></div></div>
+        <div class="dashboard-event-main"><div class="dashboard-event-copy"><% const details = eventDetails(event); %><% if (details.length) { %><div class="dashboard-event-details"><% details.forEach((item) => { %><span class="dashboard-event-detail <%= isLongEventDetail(item) ? 'dashboard-event-detail-wide' : '' %>"><%= item %></span><% }) %></div><% } %></div></div>
+        <div class="dashboard-event-divider dashboard-simple-event-divider" aria-hidden="true"></div>
+        <div class="dashboard-simple-event-context"><span><%= event.culture %></span><span><%= event.code %></span><span><%= event.stage %></span></div>
+      <% if (eventUrl) { %></a><% } else { %></article><% } %>
+    <% }) %>
+  </div>
+<% } else { %>
+  <div class="dashboard-inline-empty"><%= emptyText || 'Событий пока нет.' %></div>
+<% } %>

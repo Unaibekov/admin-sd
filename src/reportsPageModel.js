@@ -42,7 +42,9 @@ function buildReportsPageModel(reports = [], query = {}) {
     }));
 
   const requestedEmployeeKey = normalizeEmployeeKey(query.employee);
-  const selectedEmployee = employees.find((employee) => employee.key === requestedEmployeeKey) || employees[0] || null;
+  const selectedEmployee = requestedEmployeeKey
+    ? employees.find((employee) => employee.key === requestedEmployeeKey) || null
+    : null;
 
   return {
     employees,

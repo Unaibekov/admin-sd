@@ -206,7 +206,7 @@ function getEventCategory(event = {}, hasPhotos = false) {
   if (['introloss', 'loss', 'death', 'discard'].includes(type)) return 'losses';
   if (type === 'sale') return 'sales';
   if (type === 'rooting') return 'rooting';
-  if (type === 'propagation') return 'propagation';
+  if (type === 'propagation' || type === 'clonedfromparent') return 'propagation';
   if (type === 'transplant') return 'transplant';
   if (type === 'planting') return 'planting';
   if (type === 'plantingcompletion' || type === 'completion') return 'completion';
@@ -317,11 +317,16 @@ function buildEventDetails(event, category) {
     push('Получатель', get('recipient'));
     push('Стоимость', get('saleAmount'));
   } else if (category === 'propagation') {
+    push('Дочерняя партия', get('childCode') || get('childCardId'));
+    push('Родительская партия', get('parentCode') || get('parentCardId'));
+    push('Поколение', get('generation'));
     push('Добавлено', withUnits(get('count') || get('quantity')));
     push('Было', withUnits(get('previousQuantity')));
     push('Стало', withUnits(get('currentQuantity')));
     push('Способ размножения', get('propagationMethod'));
   } else if (category === 'problems') {
+    push('Затронуто', withUnits(get('affectedQuantity')));
+    push('Выздоровело', withUnits(get('recoveredQuantity')));
     push('Тип проблемы', get('problemType') || get('problem'));
     push('Риск', get('riskLevel') || get('risk'));
     push('Описание', get('problemDescription') || get('diseaseName') || get('pestName') || get('reason') || get('quarantineReason'));
@@ -356,7 +361,7 @@ function formatJournalEventTitle(event, category) {
   const type = normalizeType(event);
   const labels = {
     batchcreated: 'Создание партии', stagechange: 'Изменение стадии', statuschange: 'Изменение статуса', movement: 'Перемещение',
-    sale: 'Продажа', introloss: 'Потери', loss: 'Потери', death: 'Гибель', discard: 'Списание', propagation: 'Размножение',
+    sale: 'Продажа', introloss: 'Потери', loss: 'Потери', death: 'Гибель', discard: 'Списание', propagation: 'Размножение', clonedfromparent: 'Создание клона',
     rooting: 'Укоренение', transplant: 'Пересадка', planting: 'Высадка', plantingobservation: 'Наблюдение', plantingcare: 'Уход',
     plantingcompletion: 'Завершение', greenhouseobservation: 'Наблюдение', greenhousecare: 'Уход', greenhousedisease: 'Болезнь',
     hardeningobservation: 'Наблюдение', hardeningcare: 'Уход', adaptationstress: 'Наблюдение', adaptationcare: 'Уход',
