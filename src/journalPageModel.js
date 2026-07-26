@@ -54,10 +54,12 @@ function buildJournalPageModel(reports = [], query = {}) {
   const filters = resolveFilters(query);
   const events = filterJournalEvents(allEvents, filters);
   const groups = groupEventsByDate(events);
+  const cardGroups = groupEventsByCard(events);
 
   return {
     events,
     groups,
+    cardGroups,
     filters,
     hasEvents: allEvents.length > 0,
     hasResults: events.length > 0,
@@ -137,6 +139,10 @@ function normalizeJournalEvent(event = {}, card = {}, report = {}, rawEvent = {}
   const comment = firstValue([event.comment, event.message, event.text, event.details]);
   const details = buildEventDetails(event, category);
   const quantity = getEventQuantity(event);
+  const cardCreatedAt = firstValue([card.createdAt, card.createdDate, report.createdAt, date]);
+  const cardQuantity = firstValue([card.currentQuantity, card.quantity, card.initialQuantity, event.currentQuantity, event.quantity, event.count]);
+  const cardStageStartedAt = firstValue([card.stageChangedAt, card.stageStartedAt, card.stageEnteredAt, card.updatedAt, cardCreatedAt]);
+  const batchUrl = `/stages?cardId=${encodeURIComponent(cardId)}&tab=journal&eventId=${encodeURIComponent(eventId)}#journal`;
 
   return {
     id: eventId,
@@ -145,6 +151,12 @@ function normalizeJournalEvent(event = {}, card = {}, report = {}, rawEvent = {}
     code: firstValue([card.code, card.partyCode, cardId]) || 'Без кода',
     culture,
     stage,
+    cardCreatedAt,
+    cardDateLabel: formatJournalShortDate(cardCreatedAt),
+    cardQuantity,
+    cardQuantityLabel: cardQuantity ? `${cardQuantity} шт.` : '',
+    cardDaysInStage: getDaysInStage(cardStageStartedAt),
+    cardDaysInStageLabel: formatDaysInStage(getDaysInStage(cardStageStartedAt)),
     type,
     title,
     category,
@@ -165,7 +177,7 @@ function normalizeJournalEvent(event = {}, card = {}, report = {}, rawEvent = {}
       .filter(Boolean)
       .join(' ')
       .toLowerCase(),
-    batchUrl: `/stages?cardId=${encodeURIComponent(cardId)}&tab=journal&eventId=${encodeURIComponent(eventId)}#journal`
+    batchUrl
   };
 }
 
@@ -248,16 +260,68 @@ function groupEventsByDate(events = []) {
     .map((group) => ({ ...group, events: group.events.sort((left, right) => right.timestamp - left.timestamp) }));
 }
 
+function groupEventsByCard(events = []) {
+  const groups = new Map();
+  for (const event of Array.isArray(events) ? events : []) {
+    const key = event.cardId || event.code || event.culture;
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        title: event.culture,
+        stage: event.stage,
+        dateLabel: event.cardDateLabel,
+        quantityLabel: event.cardQuantityLabel,
+        daysInStageLabel: event.cardDaysInStageLabel,
+        batchUrl: event.batchUrl,
+        latestEventAt: event.timestamp,
+        events: []
+      });
+    }
+
+    const group = groups.get(key);
+    group.latestEventAt = Math.max(group.latestEventAt || 0, event.timestamp || 0);
+    group.events.push(event);
+  }
+
+  return [...groups.values()]
+    .map((group) => ({
+      ...group,
+      events: group.events.sort((left, right) => right.timestamp - left.timestamp)
+    }))
+    .sort((left, right) => (right.latestEventAt || 0) - (left.latestEventAt || 0));
+}
+
 function formatJournalDate(value) {
   const date = toDate(value);
   if (!date) return 'Дата не указана';
   return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', year: 'numeric', timeZone: DISPLAY_TIME_ZONE }).format(date);
 }
 
+function formatJournalShortDate(value) {
+  const date = toDate(value);
+  if (!date) return '';
+  return new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', timeZone: DISPLAY_TIME_ZONE }).format(date);
+}
+
 function formatJournalTime(value) {
   const date = toDate(value);
   if (!date) return '—';
   return new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: DISPLAY_TIME_ZONE }).format(date);
+}
+
+function getDaysInStage(value) {
+  const date = toDate(value);
+  if (!date) return 0;
+  const now = new Date();
+  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  const start = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+  return Math.max(Math.floor((today - start) / 86400000) + 1, 1);
+}
+
+function formatDaysInStage(days) {
+  const value = Number(days) || 0;
+  if (!value) return '';
+  return `${value} дн. в стадии`;
 }
 
 function resolveFilters(query = {}) {
@@ -305,7 +369,27 @@ function buildEventDetails(event, category) {
     if (text && !items.some((item) => item.label === label && item.value === text)) items.push({ label, value: text });
   };
 
-  if (category === 'losses') {
+  if (type === 'plantingobservation') {
+    push('Приживаемость', get('survivalRate'));
+    push('Уровень стресса', get('stressLevel'));
+    push('Тургор', get('turgor'));
+    push('Комментарий', get('comment'));
+  } else if (type === 'adaptationstress') {
+    push('Уровень стресса', get('stressLevel'));
+    push('Стабильность', get('stability'));
+    push('Тургор', get('turgor'));
+    push('Комментарий', get('comment'));
+    push('Температура', get('environmentTemperature'));
+    push('Влажность воздуха', get('environmentAirHumidity') || get('environmentHumidity'));
+    push('Влажность субстрата', get('substrateHumidity'));
+    push('Освещение', get('environmentLight'));
+    push('Проветривание', get('ventilation'));
+  } else if (type === 'hardeningobservation') {
+    push('Уровень стресса', get('stressLevel'));
+    push('Тургор', get('turgor'));
+    push('Готовность к высадке', get('readinessForPlanting'));
+    push('Комментарий', get('comment'));
+  } else if (category === 'losses') {
     push('Потеряно', withUnits(get('count') || get('quantity')));
     push('Было', withUnits(get('previousQuantity')));
     push('Остаток', withUnits(get('currentQuantity')));
@@ -388,7 +472,7 @@ function normalizePhotoUrls(report, event) {
 }
 
 function isImportantEvent(event, category) {
-  return ['problems', 'losses', 'sales'].includes(category) || normalizeType(event) === 'stagechange' || /critical|высок/i.test(`${readEventField(event, 'riskLevel')} ${readEventField(event, 'risk')}`);
+  return ['problems', 'losses', 'sales'].includes(category) || /critical|высок/i.test(`${readEventField(event, 'riskLevel')} ${readEventField(event, 'risk')}`);
 }
 
 function readEventField(event, key) {

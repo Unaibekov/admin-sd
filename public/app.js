@@ -1,7 +1,9 @@
 (function () {
-  const batchTabs = document.querySelector('.batch-tabs');
-  const batchPanels = Array.from(document.querySelectorAll('.batch-tab-panel'));
-  if (batchTabs && batchPanels.length) {
+  const initBatchTabs = (root = document) => {
+    const batchTabs = root.querySelector('.batch-tabs');
+    const batchPanels = Array.from(root.querySelectorAll('.batch-tab-panel'));
+    if (!batchTabs || !batchPanels.length || batchTabs.dataset.batchTabsReady === '1') return;
+    batchTabs.dataset.batchTabsReady = '1';
     const activateBatchTab = (id) => {
       batchTabs.querySelectorAll('a').forEach((tab) => {
         tab.classList.toggle('active', tab.getAttribute('href') === `#${id}`);
@@ -18,8 +20,8 @@
     const requestedEventId = batchParams.get('eventId');
     const requestedTab = batchParams.get('tab');
     const hashTab = window.location.hash ? window.location.hash.slice(1) : '';
-    const initialTab = requestedEventId ? 'journal' : requestedTab || hashTab || 'calendar';
-    activateBatchTab(['calendar', 'passport', 'journal'].includes(initialTab) ? initialTab : 'calendar');
+    const initialTab = requestedEventId ? 'journal' : requestedTab || hashTab || 'journal';
+    activateBatchTab(['passport', 'journal'].includes(initialTab) ? initialTab : 'journal');
 
     if (requestedEventId) {
       const targetEvent = Array.from(document.querySelectorAll('[data-event-id]'))
@@ -33,28 +35,90 @@
         }, 50);
       }
     }
-  }
+  };
 
-  const batchesFilter = document.querySelector('[data-batches-filter]');
-  if (batchesFilter) {
-    const toggle = batchesFilter.querySelector('[data-batches-filter-toggle]');
-    const menu = batchesFilter.querySelector('[data-batches-filter-menu]');
-    const close = () => {
+  initBatchTabs();
+
+  const batchesFilters = Array.from(document.querySelectorAll('[data-batches-filter]'));
+  if (batchesFilters.length) {
+    const close = (filter) => {
+      const toggle = filter.querySelector('[data-batches-filter-toggle]');
+      const menu = filter.querySelector('[data-batches-filter-menu]');
       menu.hidden = true;
       toggle.setAttribute('aria-expanded', 'false');
     };
-    toggle.addEventListener('click', () => {
-      menu.hidden = !menu.hidden;
-      toggle.setAttribute('aria-expanded', String(!menu.hidden));
+    batchesFilters.forEach((filter) => {
+      const toggle = filter.querySelector('[data-batches-filter-toggle]');
+      const menu = filter.querySelector('[data-batches-filter-menu]');
+      toggle.addEventListener('click', () => {
+        const willOpen = menu.hidden;
+        batchesFilters.forEach(close);
+        menu.hidden = !willOpen;
+        toggle.setAttribute('aria-expanded', String(willOpen));
+      });
     });
     document.addEventListener('click', (event) => {
-      if (!batchesFilter.contains(event.target)) close();
+      if (!batchesFilters.some((filter) => filter.contains(event.target))) batchesFilters.forEach(close);
     });
   }
 
   const selectedBatch = document.querySelector('[data-selected-batch]');
   if (selectedBatch) {
     window.setTimeout(() => selectedBatch.scrollIntoView({ behavior: 'auto', block: 'center' }), 0);
+  }
+
+  const batchesList = document.querySelector('.batches-list');
+  if (batchesList && window.fetch && window.DOMParser && window.history) {
+    const normalizeStageUrl = (href) => {
+      const url = new URL(href, window.location.href);
+      return `${url.pathname}${url.search}`;
+    };
+
+    const setActiveBatchCard = (href) => {
+      const target = normalizeStageUrl(href);
+      document.querySelectorAll('.batch-list-card').forEach((card) => {
+        const isActive = normalizeStageUrl(card.href) === target;
+        card.classList.toggle('active', isActive);
+        if (isActive) card.setAttribute('data-selected-batch', '');
+        else card.removeAttribute('data-selected-batch');
+      });
+    };
+
+    const loadBatchDetail = async (href, push = true) => {
+      const currentShell = document.querySelector('.batch-detail-shell');
+      if (!currentShell) {
+        window.location.href = href;
+        return;
+      }
+
+      currentShell.classList.add('is-loading');
+      try {
+        const response = await fetch(href, { headers: { 'X-Requested-With': 'fetch' } });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const html = await response.text();
+        const nextDocument = new DOMParser().parseFromString(html, 'text/html');
+        const nextShell = nextDocument.querySelector('.batch-detail-shell');
+        if (!nextShell) throw new Error('Missing batch detail shell');
+
+        currentShell.replaceWith(nextShell);
+        if (push) window.history.pushState({ stagesBatch: true }, '', href);
+        initBatchTabs(nextShell);
+        setActiveBatchCard(href);
+      } catch (error) {
+        window.location.href = href;
+      }
+    };
+
+    batchesList.addEventListener('click', (event) => {
+      const link = event.target.closest('a.batch-list-card');
+      if (!link || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      loadBatchDetail(link.href);
+    });
+
+    window.addEventListener('popstate', () => {
+      if (window.location.pathname === '/stages') loadBatchDetail(window.location.href, false);
+    });
   }
 
   const uploadForm = document.querySelector('[data-upload-form]');
@@ -470,18 +534,79 @@
 
   const globalJournalRoot = document.querySelector('[data-global-journal-page]');
   if (globalJournalRoot) {
-    const period = globalJournalRoot.querySelector('[data-global-journal-period]');
-    const customRange = globalJournalRoot.querySelector('[data-global-journal-custom-range]');
     const syncCustomRange = () => {
+      const period = globalJournalRoot.querySelector('[data-global-journal-period]');
+      const customRange = globalJournalRoot.querySelector('[data-global-journal-custom-range]');
       if (customRange && period) customRange.hidden = period.value !== 'custom';
     };
-    if (period) period.addEventListener('change', syncCustomRange);
-    globalJournalRoot.querySelectorAll('[data-global-journal-date]').forEach((input) => {
-      input.addEventListener('change', () => {
+
+    const buildJournalUrl = (form) => {
+      const url = new URL(form.action || window.location.href, window.location.href);
+      const params = new URLSearchParams(new FormData(form));
+      url.search = params.toString();
+      return `${url.pathname}${url.search ? `?${url.searchParams.toString()}` : ''}`;
+    };
+
+    const replaceOrRemove = (selector, nextDocument) => {
+      const current = globalJournalRoot.querySelector(selector);
+      const next = nextDocument.querySelector(selector);
+      if (current && next) current.replaceWith(next);
+      else if (current && !next) current.remove();
+      else if (!current && next) {
+        const layout = globalJournalRoot.querySelector('.global-journal-layout');
+        if (layout) layout.before(next);
+      }
+    };
+
+    const loadJournal = async (href, push = true) => {
+      globalJournalRoot.classList.add('is-loading');
+      try {
+        const response = await fetch(href, { headers: { 'X-Requested-With': 'fetch' } });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const html = await response.text();
+        const nextDocument = new DOMParser().parseFromString(html, 'text/html');
+        const nextFilterPanel = nextDocument.querySelector('.global-journal-filter-panel');
+        const currentFilterPanel = globalJournalRoot.querySelector('.global-journal-filter-panel');
+        const nextResults = nextDocument.querySelector('.global-journal-results');
+        const currentResults = globalJournalRoot.querySelector('.global-journal-results');
+        if (!nextFilterPanel || !currentFilterPanel || !nextResults || !currentResults) throw new Error('Missing journal layout');
+
+        currentFilterPanel.replaceWith(nextFilterPanel);
+        replaceOrRemove('.global-journal-summary', nextDocument);
+        currentResults.replaceWith(nextResults);
+        if (push) window.history.pushState({ globalJournal: true }, '', href);
+        syncCustomRange();
+      } catch (error) {
+        window.location.href = href;
+      } finally {
+        globalJournalRoot.classList.remove('is-loading');
+      }
+    };
+
+    globalJournalRoot.addEventListener('submit', (event) => {
+      const form = event.target.closest('.global-journal-filters');
+      if (!form || !globalJournalRoot.contains(form) || !window.fetch || !window.DOMParser || !window.history) return;
+      event.preventDefault();
+      loadJournal(buildJournalUrl(form));
+    });
+
+    globalJournalRoot.addEventListener('change', (event) => {
+      if (event.target.matches('[data-global-journal-period]')) {
+        syncCustomRange();
+      }
+      if (event.target.matches('[data-global-journal-date]')) {
+        const period = globalJournalRoot.querySelector('[data-global-journal-period]');
         if (period) period.value = 'custom';
         syncCustomRange();
-      });
+      }
     });
+
+    window.addEventListener('popstate', () => {
+      if (window.location.pathname === '/journal' && window.fetch && window.DOMParser) {
+        loadJournal(window.location.href, false);
+      }
+    });
+
     syncCustomRange();
   }
 

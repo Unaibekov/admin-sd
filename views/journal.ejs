@@ -1,5 +1,6 @@
 <%- include('partials/head', { pageTitle }) %>
 <% const filters = journal.filters; %>
+<% const selectedAuthor = (journal.employeeOptions || []).find((option) => option.value === filters.employee) || { label: 'Все сотрудники' }; %>
 <div class="app-shell">
   <%- include('partials/sidebar', { activePage: 'journal', showDashboardLink: journal.hasEvents }) %>
 
@@ -87,34 +88,45 @@
         </aside>
 
         <section class="global-journal-results">
+          <% if (journal.hasEvents) { %>
+            <header class="global-journal-results-head">
+              <span>Автор</span>
+              <strong><%= selectedAuthor.label %></strong>
+            </header>
+          <% } %>
 
           <% if (journal.hasEvents) { %>
 
         <% if (journal.hasResults) { %>
           <section class="global-journal-timeline" aria-label="Хронология событий">
-            <% journal.groups.forEach((group) => { %>
-              <section class="global-journal-day">
-                <h2><%= group.label %></h2>
+            <% journal.cardGroups.forEach((group) => { %>
+              <details class="global-journal-plant-card">
+                <summary class="global-journal-plant-summary">
+                  <span class="global-journal-plant-head">
+                    <span class="global-journal-plant-title"><%= group.title %></span>
+                    <span class="global-journal-plant-stage"><%= group.stage %></span>
+                    <span class="global-journal-event-meta">
+                      <% if (group.quantityLabel) { %><span>🌿 <%= group.quantityLabel %></span><% } %>
+                      <% if (group.daysInStageLabel) { %><span>🕒 <%= group.daysInStageLabel %></span><% } %>
+                    </span>
+                  </span>
+                  <strong class="global-journal-plant-count"><%= group.events.length %></strong>
+                </summary>
                 <div class="global-journal-events">
-                  <% group.events.forEach((event) => { %>
+                  <% group.events.forEach((event, eventIndex) => { %>
                     <article class="global-journal-event global-journal-event-<%= event.category %>">
                       <time datetime="<%= event.date %>"><%= event.timeLabel %></time>
                       <div class="global-journal-event-body">
                         <div class="global-journal-event-topline">
-                          <div>
-                            <span class="global-journal-category"><%= event.categoryLabel %></span>
-                            <h3><%= event.title %></h3>
-                          </div>
+                          <h3><%= event.title %></h3>
                           <% if (event.isImportant) { %><span class="global-journal-important">Важно</span><% } %>
                         </div>
-                        <p class="global-journal-batch"><strong><%= event.culture %></strong><span><%= event.code %> · <%= event.stage %></span></p>
-                        <p class="global-journal-author">Автор: <%= event.createdBy %></p>
-                        <% if (event.details.length) { %>
+                        <% const globalJournalEventDetails = event.comment ? [...event.details, { label: 'Комментарий', value: event.comment }] : event.details; %>
+                        <% if (globalJournalEventDetails.length) { %>
                           <dl class="global-journal-details">
-                            <% event.details.forEach((item) => { %><div><dt><%= item.label %></dt><dd><%= item.value %></dd></div><% }) %>
+                            <% globalJournalEventDetails.forEach((item) => { %><dt><%= item.label %></dt><dd><%= item.value %></dd><% }) %>
                           </dl>
                         <% } %>
-                        <% if (event.comment) { %><p class="global-journal-comment"><%= event.comment %></p><% } %>
                         <% if (event.photos.length) { %>
                           <div class="global-journal-photos">
                             <% event.photos.forEach((photo, photoIndex) => { %>
@@ -124,12 +136,13 @@
                             <% }) %>
                           </div>
                         <% } %>
-                        <% if (event.cardId) { %><a class="global-journal-batch-link" href="<%= event.batchUrl %>">Открыть партию</a><% } %>
                       </div>
                     </article>
+                    <% if (eventIndex < group.events.length - 1) { %><hr class="global-journal-event-divider"><% } %>
                   <% }) %>
+                  <% if (group.batchUrl) { %><a class="global-journal-batch-link" href="<%= group.batchUrl %>">Открыть партию</a><% } %>
                 </div>
-              </section>
+              </details>
             <% }) %>
           </section>
         <% } else { %>

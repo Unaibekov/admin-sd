@@ -51,12 +51,61 @@ run('sums the number of plants in loss and sale operations for the journal summa
   assert.equal(journal.summary.soldPlants, 24);
 });
 
+run('groups consecutive global journal events by batch with shared meta', () => {
+  const journal = buildJournalPageModel([{
+    reportId: 'event-meta-report',
+    cards: [{ ...card, quantity: 112, currentQuantity: 88, createdAt: '2026-06-10T08:00:00.000Z', events: [
+      { eventId: 'move-1', type: 'movement', date: '2026-06-19T10:00:00.000Z', nextLocation: 'Теплица 1' },
+      { eventId: 'sale-1', type: 'sale', date: '2026-06-19T11:00:00.000Z', count: 24 }
+    ] }],
+    raw: { cards: [{ events: [{ eventId: 'move-1' }, { eventId: 'sale-1' }] }] }
+  }]);
+
+  assert.equal(journal.cardGroups.length, 1);
+  assert.equal(journal.cardGroups[0].title, 'Монстера · Monstera deliciosa · Borsigiana');
+  assert.equal(journal.cardGroups[0].events.length, 2);
+  assert.equal(journal.cardGroups[0].quantityLabel, '88 шт.');
+  assert.equal(journal.cardGroups[0].batchUrl.includes('/stages?cardId=card-1'), true);
+  assert.equal(journal.groups[0].events[0].id, 'sale-1');
+  assert.equal(journal.groups[0].events[0].cardQuantityLabel, '88 шт.');
+  assert.ok(journal.groups[0].events[0].cardDaysInStageLabel.endsWith('дн. в стадии'));
+});
+
+run('adds observation details in global journal from extra fields', () => {
+  const journal = buildJournalPageModel([{
+    reportId: 'observation-report',
+    cards: [{ ...card, events: [{
+      eventId: 'observation-1',
+      type: 'hardeningObservation',
+      title: 'Наблюдение',
+      date: '2026-06-19T11:00:00.000Z',
+      extraFields: { readinessForPlanting: 'Готова' }
+    }] }],
+    raw: { cards: [{ events: [{ eventId: 'observation-1' }] }] }
+  }]);
+
+  assert.deepEqual(journal.events[0].details, [
+    { label: 'Готовность к высадке', value: 'Готова' }
+  ]);
+});
+
 run('uses documented operation types for categories and chronological groups', () => {
   const events = buildGlobalJournal(reports);
   assert.equal(getEventCategory({ type: 'greenhouseCare' }), 'care');
   assert.equal(getEventCategory({ type: 'plantingCompletion' }), 'completion');
   assert.equal(getEventCategory({ type: 'clonedFromParent' }), 'propagation');
   assert.equal(groupEventsByDate(events).length, 2);
+});
+
+run('does not mark ordinary stage changes as important', () => {
+  const journal = buildJournalPageModel([{
+    reportId: 'stage-change-report',
+    cards: [{ ...card, events: [{ eventId: 'stage-1', type: 'stageChange', date: '2026-06-19T10:00:00.000Z', fromStage: 'Закалка', toStage: 'Высадка' }] }],
+    raw: { cards: [{ events: [{ eventId: 'stage-1' }] }] }
+  }], { quick: 'important' });
+
+  assert.equal(journal.summary.total, 0);
+  assert.equal(journal.groups.length, 0);
 });
 
 run('keeps clone relation details in the global journal', () => {
