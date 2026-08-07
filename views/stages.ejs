@@ -1,13 +1,17 @@
 <%- include('partials/head', { pageTitle }) %>
 <% const selected = stages.selectedCard; %>
+<% const formatCountValue = (value) => value === 0 || value === '0' ? '0' : (value || '?'); %>
 <% const selectedEmployee = (stages.employees || []).find((item) => item.key === stages.selectedEmployee); %>
 <% const stagesUrl = (updates = {}) => {
   const params = new URLSearchParams();
-  const values = { q: stages.search, stage: stages.selectedStage, employee: stages.selectedEmployee, ...updates };
+  const values = { q: stages.search, stage: stages.selectedStage, employee: stages.selectedEmployee, reportId: stages.selectedReportId, ...updates };
   if (values.q) params.set('q', values.q);
   if (values.stage && values.stage !== 'all') params.set('stage', values.stage);
   if (values.employee && values.employee !== 'all') params.set('employee', values.employee);
+  if (values.reportId) params.set('reportId', values.reportId);
   if (values.batchId) params.set('batchId', values.batchId);
+  if (values.tab) params.set('tab', values.tab);
+  if (values.eventId) params.set('eventId', values.eventId);
   return `/stages${params.toString() ? `?${params.toString()}` : ''}`;
 }; %>
 <div class="app-shell">
@@ -27,6 +31,7 @@
           <div class="batches-toolbar">
             <form class="batches-search" method="get" action="/stages">
               <input id="batch-search" name="q" value="<%= stages.search %>" placeholder="По коду, культуре, виду или сорту" autocomplete="off">
+              <% if (stages.selectedReportId) { %><input type="hidden" name="reportId" value="<%= stages.selectedReportId %>"><% } %>
               <% if (stages.selectedStage !== 'all') { %><input type="hidden" name="stage" value="<%= stages.selectedStage %>"><% } %>
               <% if (stages.selectedEmployee !== 'all') { %><input type="hidden" name="employee" value="<%= stages.selectedEmployee %>"><% } %>
             </form>
@@ -74,8 +79,8 @@
                     <strong><%= card.title %></strong>
                     <small><%= card.code %> · <%= card.stage %></small>
                     <span class="batch-list-meta">
-                      <span>🌿 <%= card.currentQuantity || '—' %> шт.</span>
-                      <% if (Number(card.daysInStage) > 0) { %><span>🕒 <%= card.daysInStage %> дн. в стадии</span><% } %>
+                      <span>Остаток: <%= formatCountValue(card.currentQuantity) %> шт.</span>
+                      <% if (Number(card.daysInStage) > 0) { %><span>Дней на стадии: <%= card.daysInStage %></span><% } %>
                     </span>
                   </span>
                 </a>
@@ -104,17 +109,23 @@
             </header>
 
             <nav class="batch-tabs" aria-label="Разделы партии">
-              <a class="<%= stages.selectedTab === 'passport' ? 'active' : '' %>" href="#passport">Паспорт</a>
-              <a class="<%= stages.selectedTab === 'journal' ? 'active' : '' %>" href="#journal">Журнал</a>
+              <a class="<%= stages.selectedTab === 'passport' ? 'active' : '' %>" data-tab="passport" href="<%= stagesUrl({ batchId: stages.selectedBatchKey, tab: 'passport', eventId: '' }) %>#passport">Паспорт</a>
+              <a class="<%= stages.selectedTab === 'journal' ? 'active' : '' %>" data-tab="journal" href="<%= stagesUrl({ batchId: stages.selectedBatchKey, tab: 'journal', eventId: stages.highlightedEventId }) %>#journal">Журнал</a>
             </nav>
 
             <div class="batch-detail-content">
               <section class="batch-tab-panel" id="passport">
                 <div class="passport-grid">
-                  <article><h4>Сводка</h4><dl><dt>Статус партии</dt><dd><%= selected.statusLabel %></dd><dt>Общий остаток</dt><dd><%= selected.totalQuantityLabel %></dd><% if (Number(selected.activeProblemQuantity) > 0) { %><dt>Здоровые</dt><dd><%= selected.healthyQuantity %> шт.</dd><dt>С активной проблемой</dt><dd><%= selected.activeProblemQuantity %> шт.</dd><% } %><% if (Number(selected.propagationQuantity) > 0) { %><dt>Исходные растения</dt><dd><%= selected.sourceQuantity || '—' %> шт.</dd><dt>Размножено</dt><dd><%= selected.propagationQuantity %> шт.</dd><% } %><% if (selected.code) { %><dt>QR-код</dt><dd><%= selected.qrStatusLabel %></dd><% } %><dt>Дней на стадии</dt><dd><%= selected.daysInStage %></dd></dl></article>
+                  <article><h4>Сводка</h4><dl><dt>Статус партии</dt><dd><%= selected.statusLabel %></dd><dt>Общий остаток</dt><dd><%= selected.totalQuantityLabel %></dd><% if (selected.originType === 'problemIsolation') { %><% if (selected.healthStatusLabel) { %><dt>Состояние здоровья</dt><dd><%= selected.healthStatusLabel %></dd><% } %><% if (selected.isolationStatusLabel) { %><dt>Статус изоляции</dt><dd><%= selected.isolationStatusLabel %></dd><% } %><% if (Number(selected.activeProblemQuantity) > 0) { %><dt>С активной проблемой</dt><dd><%= selected.activeProblemQuantity %> шт.</dd><% } %><% } else { %><% if (Number(selected.activeProblemQuantity) > 0) { %><dt>Здоровые</dt><dd><%= selected.healthyQuantity %> шт.</dd><dt>С активной проблемой</dt><dd><%= selected.activeProblemQuantity %> шт.</dd><% } %><% if (Number(selected.unisolatedProblemQuantity) > 0) { %><dt>Без изоляции</dt><dd><%= selected.unisolatedProblemQuantity %> шт.</dd><% } %><% if (selected.healthStatusLabel) { %><dt>Состояние здоровья</dt><dd><%= selected.healthStatusLabel %></dd><% } %><% if (selected.isolationStatusLabel) { %><dt>Статус изоляции</dt><dd><%= selected.isolationStatusLabel %></dd><% } %><% } %><% if (Number(selected.propagationQuantity) > 0) { %><dt>Исходные растения</dt><dd><%= formatCountValue(selected.sourceQuantity) %> шт.</dd><dt>Размножено</dt><dd><%= selected.propagationQuantity %> шт.</dd><% } %><% if (selected.code) { %><dt>QR-код</dt><dd><%= selected.qrStatusLabel %></dd><% } %><dt>Дней на стадии</dt><dd><%= selected.daysInStage %></dd></dl></article>
                   <article><h4>Размещение</h4><dl><dt>Местоположение</dt><dd><%= selected.location || '—' %></dd></dl></article>
-                  <% if (selected.originType === 'cloned') { %>
-                    <article><h4>Происхождение</h4><dl><dt>Тип партии</dt><dd>Клон</dd><dt>Родительская партия</dt><dd><%= selected.parentCode || '—' %></dd><dt>Поколение</dt><dd><%= selected.generation || 1 %></dd><% if (selected.propagationMethod) { %><dt>Способ размножения</dt><dd><%= selected.propagationMethod %></dd><% } %><% if (selected.propagatedAt) { %><dt>Дата размножения</dt><dd><%= new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(selected.propagatedAt)) %></dd><% } %></dl></article>
+                  <% if (selected.originType === 'cloned' || selected.originType === 'problemIsolation') { %>
+                    <article><h4>Происхождение</h4><dl><dt>Тип партии</dt><dd><%= selected.originLabel || (selected.originType === 'problemIsolation' ? 'Изолированная партия' : 'Клон') %></dd><dt>Родительская партия</dt><dd><%= selected.parentCode || '—' %></dd><% if (selected.generation || selected.generation === 0 || selected.generation === '0') { %><dt>Поколение</dt><dd><%= selected.generation === 0 || selected.generation === '0' ? '0' : (selected.generation || 1) %></dd><% } %><% if (selected.propagationMethod) { %><dt>Способ размножения</dt><dd><%= selected.propagationMethod %></dd><% } %><% if (selected.sourceProblemEventId) { %><dt>Источник проблемы</dt><dd><%= selected.sourceProblemEventId %></dd><% } %><% if (selected.propagatedAt) { %><dt>Дата размножения</dt><dd><%= new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(selected.propagatedAt)) %></dd><% } %></dl></article>
+                  <% } %>
+                  <% if (selected.parentBatch || (selected.childBatches && selected.childBatches.length)) { %>
+                    <article><h4>Связи партии</h4><dl><% if (selected.parentBatch) { %><dt>Родитель</dt><dd><a href="<%= stagesUrl({ batchId: selected.parentBatch.batchKey }) %>"><%= selected.parentBatch.code %></a></dd><% } %><% if (selected.childBatches && selected.childBatches.length) { %><dt>Дочерние партии</dt><dd><% selected.childBatches.forEach((child, index) => { %><a href="<%= stagesUrl({ batchId: child.batchKey }) %>"><%= child.code %></a><%= index < selected.childBatches.length - 1 ? ', ' : '' %><% }) %></dd><% } %></dl></article>
+                  <% } %>
+                  <% if (selected.problemType || selected.riskLevel || selected.problemDescription) { %>
+                    <article><h4>Проблема</h4><dl><% if (selected.problemType) { %><dt>Тип проблемы</dt><dd><%= selected.problemType %></dd><% } %><% if (selected.riskLevel) { %><dt>Риск</dt><dd><%= selected.riskLevel %></dd><% } %><% if (selected.problemDescription) { %><dt>Описание</dt><dd><%= selected.problemDescription %></dd><% } %></dl></article>
                   <% } %>
                   <article><h4>Культура</h4><dl><dt>Культура</dt><dd><%= selected.culture || '—' %></dd><dt>Вид</dt><dd><%= selected.species || '—' %></dd><dt>Сорт</dt><dd><%= selected.variety || '—' %></dd></dl></article>
                   <article><h4>История</h4><dl><dt>Дата создания</dt><dd><%= selected.createdAt ? new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(selected.createdAt)) : '—' %></dd><dt>Код партии</dt><dd><%= selected.code %></dd><% if (selected.stageChangedAt) { %><dt>Дата перехода в стадию <%= selected.stage %></dt><dd><%= new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(selected.stageChangedAt)) %></dd><% } %></dl></article>

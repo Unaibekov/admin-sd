@@ -295,6 +295,7 @@ function getEventCategory(event = {}, hasPhotos = false) {
   if (type === 'sale') return 'sales';
   if (type === 'rooting') return 'rooting';
   if (type === 'propagation' || type === 'clonedfromparent') return 'propagation';
+  if (['problemisolation', 'isolatedfromparent', 'problemrecovery'].includes(type)) return 'problems';
   if (type === 'transplant') return 'transplant';
   if (type === 'planting') return 'planting';
   if (type === 'plantingcompletion' || type === 'completion') return 'completion';
@@ -528,6 +529,22 @@ function buildEventDetails(event, category) {
     push('Было', withUnits(get('previousQuantity')));
     push('Стало', withUnits(get('currentQuantity')));
     push('Способ размножения', get('propagationMethod'));
+  } else if (type === 'problemisolation' || type === 'isolatedfromparent') {
+    push('Изолированная партия', get('childCode') || get('childCardId'));
+    push('Родительская партия', get('parentCode') || get('parentCardId'));
+    push('Изолировано', withUnits(get('count') || get('quantity') || get('activeProblemQuantity')));
+    push('С активной проблемой', withUnits(get('activeProblemQuantity')));
+    push('Без изоляции', withUnits(get('unisolatedProblemQuantity')));
+    push('Состояние здоровья', get('healthStatus'));
+    push('Статус изоляции', get('isolationStatus'));
+    push('Источник проблемы', get('sourceProblemEventId'));
+  } else if (type === 'problemrecovery') {
+    push('Выздоровело', withUnits(get('recoveredQuantity') || get('quantity')));
+    push('С активной проблемой', withUnits(get('activeProblemQuantity')));
+    push('Без изоляции', withUnits(get('unisolatedProblemQuantity')));
+    push('Состояние здоровья', get('healthStatus'));
+    push('Статус изоляции', get('isolationStatus'));
+    push('Стало', withUnits(get('currentQuantity')));
   } else if (category === 'problems') {
     push('Затронуто', withUnits(get('affectedQuantity')));
     push('Выздоровело', withUnits(get('recoveredQuantity')));
@@ -566,7 +583,7 @@ function formatJournalEventTitle(event, category) {
   const type = normalizeType(event);
   const labels = {
     batchcreated: 'Создание партии', stagechange: 'Изменение стадии', statuschange: 'Изменение статуса', movement: 'Перемещение',
-    sale: 'Продажа', introloss: 'Потери', loss: 'Потери', death: 'Гибель', discard: 'Списание', propagation: 'Размножение', clonedfromparent: 'Создание клона',
+    sale: 'Продажа', introloss: 'Потери', loss: 'Потери', death: 'Гибель', discard: 'Списание', propagation: 'Размножение', clonedfromparent: 'Создание клона', problemisolation: 'Изоляция проблемных растений', isolatedfromparent: 'Создание изолированной партии', problemrecovery: 'Проблема решена',
     rooting: 'Укоренение', transplant: 'Пересадка', planting: 'Высадка', plantingobservation: 'Наблюдение', plantingcare: 'Уход',
     plantingcompletion: 'Завершение', greenhouseobservation: 'Наблюдение', greenhousecare: 'Уход', greenhousedisease: 'Болезнь',
     hardeningobservation: 'Наблюдение', hardeningcare: 'Уход', adaptationstress: 'Наблюдение', adaptationcare: 'Уход',

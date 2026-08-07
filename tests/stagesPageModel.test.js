@@ -952,3 +952,27 @@ if (process.exitCode) {
   process.exit(process.exitCode);
 }
 
+
+
+run('keeps isolation metadata and batch relations in batch model', () => {
+  const parent = buildReport({ reportId: 'report-parent-isolation', deviceId: 'device-a', updatedAt: '2026-07-16T09:00:00.000Z', quantity: 10, eventId: 'problem-isolation-parent-event' });
+  Object.assign(parent.raw.cards[0], { cardId: 'parent-card-1', code: 'VK-PARENT', stage: 'Теплица', currentQuantity: 7, batchStatus: 'problem', events: [{ eventId: 'problem-isolation-parent-event', type: 'problemIsolation', createdAt: '2026-07-16T09:00:00.000Z', count: 3, currentQuantity: 7, childCardId: 'isolated-card-1', childCode: 'VK-ISO', sourceProblemEventId: 'problem-origin-1', activeProblemQuantity: 3, unisolatedProblemQuantity: 0, healthStatus: 'infected', isolationStatus: 'isolated' }] });
+  parent.cards[0] = { ...parent.raw.cards[0] };
+  const child = buildReport({ reportId: 'report-child-isolation', deviceId: 'device-a', updatedAt: '2026-07-16T09:05:00.000Z', quantity: 3, eventId: 'isolated-from-parent-event' });
+  Object.assign(child.raw.cards[0], { cardId: 'isolated-card-1', code: 'VK-ISO', stage: 'Теплица', currentQuantity: 3, batchStatus: 'quarantine', originType: 'problemIsolation', parentCardId: 'parent-card-1', parentCode: 'VK-PARENT', sourceProblemEventId: 'problem-origin-1', healthStatus: 'infected', isolationStatus: 'isolated', activeProblemQuantity: 3, unisolatedProblemQuantity: 0, events: [{ eventId: 'isolated-from-parent-event', type: 'isolatedFromParent', createdAt: '2026-07-16T09:05:00.000Z', count: 3, parentCardId: 'parent-card-1', parentCode: 'VK-PARENT', sourceProblemEventId: 'problem-origin-1', healthStatus: 'infected', isolationStatus: 'isolated' }] });
+  child.cards[0] = { ...child.raw.cards[0] };
+  const model = buildStagesPageModel([parent, child], { batchId: 'device-a::isolated-card-1', tab: 'passport' });
+  const isolatedCard = model.selectedCard;
+  const parentCard = model.cards.find((card) => card.code === 'VK-PARENT');
+  assert.equal(isolatedCard.originType, 'problemIsolation');
+  assert.equal(isolatedCard.parentCode, 'VK-PARENT');
+  assert.equal(isolatedCard.sourceProblemEventId, 'problem-origin-1');
+  assert.equal(isolatedCard.healthStatus, 'infected');
+  assert.equal(isolatedCard.isolationStatus, 'isolated');
+  assert.equal(isolatedCard.parentBatch.code, 'VK-PARENT');
+  assert.equal(parentCard.childBatches[0].code, 'VK-ISO');
+  assert.equal(isolatedCard.events[0].sourceProblemEventId, 'problem-origin-1');
+  assert.equal(isolatedCard.originLabel, 'Изолированная партия');
+  assert.equal(isolatedCard.healthStatusLabel, 'Проблема активна');
+  assert.equal(isolatedCard.isolationStatusLabel, 'Изолирована');
+});

@@ -174,12 +174,18 @@ function normalizeCard(raw, parsed, report, index) {
   ]);
   const activeProblemQuantity = firstDefinedValue(raw.activeProblemQuantity, parsed.activeProblemQuantity, '');
   const healthyQuantity = firstDefinedValue(raw.healthyQuantity, parsed.healthyQuantity, '');
+  const healthStatus = firstDefinedValue(raw.healthStatus, parsed.healthStatus, '');
+  const isolationStatus = firstDefinedValue(raw.isolationStatus, parsed.isolationStatus, '');
+  const unisolatedProblemQuantity = firstDefinedValue(raw.unisolatedProblemQuantity, parsed.unisolatedProblemQuantity, '');
   const sourceQuantity = firstDefinedValue(raw.sourceQuantity, parsed.sourceQuantity, '');
   const propagationQuantity = firstDefinedValue(raw.propagationQuantity, parsed.propagationQuantity, '');
   const originType = raw.originType || parsed.originType || '';
   const parentCardId = raw.parentCardId || parsed.parentCardId || '';
   const parentCode = raw.parentCode || parsed.parentCode || '';
   const sourceEventId = raw.sourceEventId || parsed.sourceEventId || '';
+  const sourceProblemEventId = raw.sourceProblemEventId || parsed.sourceProblemEventId || '';
+  const childCardId = raw.childCardId || parsed.childCardId || '';
+  const childCode = raw.childCode || parsed.childCode || '';
   const generation = firstDefinedValue(raw.generation, parsed.generation, '');
   const propagatedAt = raw.propagatedAt || parsed.propagatedAt || '';
   const propagationMethod = raw.propagationMethod || parsed.propagationMethod || '';
@@ -211,6 +217,9 @@ function normalizeCard(raw, parsed, report, index) {
   const effectiveUpdatedAt = raw.updatedAt || parsed.updatedAt || raw.createdAt || parsed.createdAt || report.createdAt;
   const effectiveDaysInStage = getDaysInCurrentStage(stageChangedAt || raw.createdAt || parsed.createdAt || report.createdAt);
   const batchKey = buildBatchKey(deviceId, cardId, report.reportId);
+  const healthStatusLabel = formatHealthStatus(healthStatus);
+  const isolationStatusLabel = formatIsolationStatus(isolationStatus);
+  const originLabel = formatOriginType(effectiveOriginType);
   const eventContext = {
     ...parsed,
     ...raw,
@@ -240,12 +249,21 @@ function normalizeCard(raw, parsed, report, index) {
     problemDescription,
     activeProblemQuantity,
     healthyQuantity,
+    healthStatus,
+    healthStatusLabel,
+    isolationStatus,
+    isolationStatusLabel,
+    unisolatedProblemQuantity,
     sourceQuantity,
     propagationQuantity,
     originType: effectiveOriginType,
+    originLabel,
     parentCardId: effectiveParentCardId,
     parentCode: effectiveParentCode,
     sourceEventId: effectiveSourceEventId,
+    sourceProblemEventId,
+    childCardId,
+    childCode,
     generation,
     propagatedAt: effectivePropagatedAt,
     propagationMethod: effectivePropagationMethod,
@@ -283,7 +301,7 @@ function normalizeCard(raw, parsed, report, index) {
       parsed.startPhotoUri,
       parsed.startPhotoUris
     ]),
-    searchText: [cardId, code, deviceId, employeeName, ...titleParts, effectiveStage, raw.stage, parsed.stage, effectiveStatus, effectiveStatusLabel, location, effectiveOriginType, effectiveParentCode, effectivePropagationMethod].join(' ').toLowerCase()
+    searchText: [cardId, code, deviceId, employeeName, ...titleParts, effectiveStage, raw.stage, parsed.stage, effectiveStatus, effectiveStatusLabel, location, effectiveOriginType, effectiveParentCode, childCode, healthStatus, isolationStatus, effectivePropagationMethod].join(' ').toLowerCase()
   };
 }
 
@@ -310,6 +328,36 @@ function formatQrStatus(status) {
     pending_print: 'Ожидает печати',
     printed: 'Напечатан'
   })[value] || String(status || '').trim() || 'Не создан';
+}
+
+function formatHealthStatus(status) {
+  const value = normalizeText(status);
+  return ({
+    infected: 'Проблема активна',
+    problem: 'Проблема активна',
+    unhealthy: 'Проблема активна',
+    healthy: 'Здоровая',
+    resolved: 'Проблема решена',
+    recovered: 'Проблема решена'
+  })[value] || String(status || '').trim();
+}
+
+function formatIsolationStatus(status) {
+  const value = normalizeText(status);
+  return ({
+    isolated: 'Изолирована',
+    quarantine: 'Изолирована',
+    released: 'Изоляция снята',
+    none: 'Без изоляции'
+  })[value] || String(status || '').trim();
+}
+
+function formatOriginType(originType) {
+  const value = normalizeText(originType);
+  return ({
+    cloned: 'Клон',
+    problemisolation: 'Изолированная партия'
+  })[value] || String(originType || '').trim();
 }
 
 function formatQuantityDisplay(currentQuantity, totalQuantity) {
@@ -386,7 +434,12 @@ function normalizeEvent(event, report, cardContext = {}) {
     parentCardId: event.parentCardId || extraFields.parentCardId || '',
     parentCode: event.parentCode || extraFields.parentCode || '',
     sourceEventId: event.sourceEventId || extraFields.sourceEventId || '',
+    sourceProblemEventId: event.sourceProblemEventId || extraFields.sourceProblemEventId || '',
     generation: event.generation ?? extraFields.generation ?? '',
+    healthStatus: event.healthStatus || extraFields.healthStatus || '',
+    isolationStatus: event.isolationStatus || extraFields.isolationStatus || '',
+    activeProblemQuantity: event.activeProblemQuantity ?? extraFields.activeProblemQuantity ?? '',
+    unisolatedProblemQuantity: event.unisolatedProblemQuantity ?? extraFields.unisolatedProblemQuantity ?? '',
     diseaseName: event.diseaseName || extraFields.diseaseName || '',
     pestName: event.pestName || extraFields.pestName || '',
     diseaseSeverity: event.diseaseSeverity || extraFields.diseaseSeverity || '',
@@ -402,7 +455,7 @@ function normalizeEvent(event, report, cardContext = {}) {
 function getEventCategory(event = {}, hasPhotos = false) {
   const type = normalizeEventType(event);
   if (hasProblemSignals(event)) return 'problems';
-  if (['problem', 'contamination', 'quarantine', 'quarantinereleased', 'greenhousedisease'].includes(type)) return 'problems';
+  if (['problem', 'contamination', 'quarantine', 'quarantinereleased', 'greenhousedisease', 'problemisolation', 'isolatedfromparent', 'problemrecovery'].includes(type)) return 'problems';
   if (['movement', 'stagechange', 'statuschange'].includes(type)) return 'movement';
   if (['introloss', 'loss', 'death', 'discard'].includes(type)) return 'losses';
   if (type === 'sale') return 'sales';
@@ -474,6 +527,22 @@ function buildEventDetails(event, category, cardContext = {}) {
     push('Было', withUnits(get('previousQuantity')));
     push('Стало', withUnits(get('currentQuantity')));
     push('Способ размножения', get('propagationMethod'));
+  } else if (type === 'problemisolation' || type === 'isolatedfromparent') {
+    push('Изолированная партия', get('childCode') || get('childCardId'));
+    push('Родительская партия', get('parentCode') || get('parentCardId'));
+    push('Изолировано', withUnits(get('count') || get('quantity') || get('activeProblemQuantity')));
+    push('С активной проблемой', withUnits(get('activeProblemQuantity')));
+    push('Без изоляции', withUnits(get('unisolatedProblemQuantity')));
+    push('Состояние здоровья', formatHealthStatus(get('healthStatus')));
+    push('Статус изоляции', formatIsolationStatus(get('isolationStatus')));
+    push('Источник проблемы', get('sourceProblemEventId'));
+  } else if (type === 'problemrecovery') {
+    push('Выздоровело', withUnits(get('recoveredQuantity') || get('quantity')));
+    push('С активной проблемой', withUnits(get('activeProblemQuantity')));
+    push('Без изоляции', withUnits(get('unisolatedProblemQuantity')));
+    push('Состояние здоровья', formatHealthStatus(get('healthStatus')));
+    push('Статус изоляции', formatIsolationStatus(get('isolationStatus')));
+    push('Стало', withUnits(get('currentQuantity')));
   } else if (category === 'problems') {
     push('Затронуто', withUnits(get('affectedQuantity')));
     push('Выздоровело', withUnits(get('recoveredQuantity')));
@@ -522,6 +591,9 @@ function formatEventType(type, title = '') {
     discard: 'Списание',
     propagation: 'Размножение',
     clonedfromparent: 'Создание клона',
+    problemisolation: 'Изоляция проблемных растений',
+    isolatedfromparent: 'Создание изолированной партии',
+    problemrecovery: 'Проблема решена',
     rooting: 'Укоренение',
     transplant: 'Пересадка',
     planting: 'Высадка',
@@ -723,8 +795,9 @@ const STAGES_PAGE_TITLE = '\u041f\u0430\u0440\u0442\u0438\u0438';
 const READABLE_DASH = '\u2014';
 
 function buildStagesPageModel(reports = [], query = {}) {
-  const cards = buildBatchCatalog(reports);
+  const cards = attachBatchRelations(buildBatchCatalog(reports));
   const search = String(query.q || '').trim();
+  const selectedReportId = String(query.reportId || '').trim();
   const requestedStage = String(query.stage || '').trim();
   const stage = normalizeText(requestedStage) === 'all'
     ? 'all'
@@ -756,6 +829,7 @@ function buildStagesPageModel(reports = [], query = {}) {
   return {
     pageTitle: STAGES_PAGE_TITLE,
     search,
+    selectedReportId,
     selectedStage: stage || 'all',
     selectedEmployee: employee,
     selectedCardId: selectedCard ? selectedCard.cardId : '',
@@ -774,6 +848,42 @@ function buildStagesPageModel(reports = [], query = {}) {
     ],
     employees: employeeOptions
   };
+}
+
+function attachBatchRelations(cards = []) {
+  const items = Array.isArray(cards) ? cards.map((card) => ({ ...card })) : [];
+  const byCardId = new Map(items.map((card) => [normalizeText(card.cardId), card]));
+  const byCode = new Map(items.map((card) => [normalizeText(card.code), card]));
+
+  items.forEach((card) => {
+    const parent = byCardId.get(normalizeText(card.parentCardId)) || byCode.get(normalizeText(card.parentCode)) || null;
+    card.parentBatch = parent
+      ? { batchKey: parent.batchKey, code: parent.code, title: parent.title, stage: parent.stage }
+      : null;
+  });
+
+  items.forEach((card) => {
+    card.childBatches = items
+      .filter((candidate) => candidate.batchKey !== card.batchKey
+        && (normalizeText(candidate.parentCardId) === normalizeText(card.cardId)
+          || (candidate.parentCode && normalizeText(candidate.parentCode) === normalizeText(card.code))))
+      .map((candidate) => ({
+        batchKey: candidate.batchKey,
+        code: candidate.code,
+        title: candidate.title,
+        stage: candidate.stage,
+        originType: candidate.originType,
+        originLabel: candidate.originLabel,
+        currentQuantity: candidate.currentQuantity,
+        healthStatus: candidate.healthStatus,
+        healthStatusLabel: candidate.healthStatusLabel,
+        isolationStatus: candidate.isolationStatus,
+        isolationStatusLabel: candidate.isolationStatusLabel
+      }))
+      .sort((left, right) => left.code.localeCompare(right.code, 'ru'));
+  });
+
+  return items;
 }
 
 function buildEmployeeOptions(cards) {

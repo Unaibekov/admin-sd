@@ -1364,3 +1364,166 @@ run('formats Russian count labels with the correct plural form', () => {
 });
 if (process.exitCode) process.exit(process.exitCode);
 
+
+
+run('classifies isolation and recovery events as problem events with metadata', () => {
+  const reports = [report('problem-isolation-dashboard', '2026-07-16T10:24:04.383Z', [{ cardId: 'card-1', code: 'VK-PARENT', cultureName: 'Мирт', stage: 'Теплица', batchStatus: 'problem', currentQuantity: 7, updatedAt: '2026-07-16', events: [{ eventId: 'problem-isolation-event', type: 'problemIsolation', createdAt: '2026-07-16T10:24:04.383Z', createdBy: 'problem-user', count: 3, currentQuantity: 7, extraFields: { childCardId: 'child-card-1', childCode: 'VK-ISO', parentCardId: 'parent-card-1', parentCode: 'VK-PARENT', sourceProblemEventId: 'problem-origin-1', healthStatus: 'infected', isolationStatus: 'isolated', activeProblemQuantity: 3, unisolatedProblemQuantity: 0 } }, { eventId: 'problem-recovery-event', type: 'problemRecovery', createdAt: '2026-07-16T11:24:04.383Z', createdBy: 'problem-user', count: 3, currentQuantity: 10, extraFields: { healthStatus: 'healthy', isolationStatus: 'released', activeProblemQuantity: 0, unisolatedProblemQuantity: 0 } }] }])];
+  const dashboard = buildDashboard(reports, reports[0], reports, { period: 'all' });
+  const isolationEvent = dashboard.recentEvents.find((event) => event.eventId === 'problem-isolation-event');
+  const recoveryEvent = dashboard.recentEvents.find((event) => event.eventId === 'problem-recovery-event');
+  assert.equal(isolationEvent.title.includes('Изол'), true);
+  assert.equal(isolationEvent.childCode, 'VK-ISO');
+  assert.equal(isolationEvent.sourceProblemEventId, 'problem-origin-1');
+  assert.equal(isolationEvent.healthStatus, 'infected');
+  assert.equal(isolationEvent.isolationStatus, 'isolated');
+  assert.equal(recoveryEvent.title.includes('Проблема'), true);
+  assert.equal(recoveryEvent.healthStatus, 'healthy');
+  assert.equal(recoveryEvent.activeProblemQuantity, 0);
+});
+
+run('keeps full isolation quantities consistent without double counting parent and child', () => {
+  const reports = [
+    report('full-isolation-parent', '2026-07-16T09:00:00.000Z', [{
+      cardId: 'parent-card',
+      code: 'VK-PARENT',
+      cultureName: 'Мирт',
+      stage: 'Теплица',
+      batchStatus: 'active',
+      currentQuantity: 500,
+      activeProblemQuantity: 0,
+      unisolatedProblemQuantity: 0,
+      updatedAt: '2026-07-16T09:00:00.000Z',
+      events: [
+        { eventId: 'problem-origin-1', type: 'problem', createdAt: '2026-07-16T08:00:00.000Z', affectedQuantity: 500, problemType: 'Контаминация', riskLevel: 'Высокий' },
+        { eventId: 'problem-isolation-1', type: 'problemIsolation', createdAt: '2026-07-16T09:00:00.000Z', count: 500, currentQuantity: 500, extraFields: { childCardId: 'isolated-child', childCode: 'VK-ISO', parentCardId: 'parent-card', parentCode: 'VK-PARENT', sourceProblemEventId: 'problem-origin-1', healthStatus: 'infected', isolationStatus: 'isolated', activeProblemQuantity: 500, unisolatedProblemQuantity: 0 } }
+      ]
+    }]),
+    report('full-isolation-child', '2026-07-16T09:05:00.000Z', [{
+      cardId: 'isolated-child',
+      code: 'VK-ISO',
+      cultureName: 'Мирт',
+      stage: 'Теплица',
+      batchStatus: 'quarantine',
+      originType: 'problemIsolation',
+      parentCardId: 'parent-card',
+      parentCode: 'VK-PARENT',
+      sourceProblemEventId: 'problem-origin-1',
+      currentQuantity: 500,
+      activeProblemQuantity: 500,
+      healthStatus: 'infected',
+      isolationStatus: 'isolated',
+      updatedAt: '2026-07-16T09:05:00.000Z',
+      events: [
+        { eventId: 'isolated-from-parent-1', type: 'isolatedFromParent', createdAt: '2026-07-16T09:05:00.000Z', count: 500, extraFields: { parentCardId: 'parent-card', parentCode: 'VK-PARENT', sourceProblemEventId: 'problem-origin-1', healthStatus: 'infected', isolationStatus: 'isolated', activeProblemQuantity: 500 } }
+      ]
+    }])
+  ];
+
+  const batches = getLatestBatchSnapshots(reports);
+  const parent = batches.find((batch) => batch.code === 'VK-PARENT');
+  const child = batches.find((batch) => batch.code === 'VK-ISO');
+  const dashboard = buildDashboard(reports, reports[1], reports, { period: 'all' });
+
+  assert.equal(parent.currentQuantity, 500);
+  assert.equal(parent.activeProblemQuantity, 0);
+  assert.equal(parent.unisolatedProblemQuantity, 0);
+  assert.equal(child.currentQuantity, 500);
+  assert.equal(child.activeProblemQuantity, 500);
+  assert.equal(child.originType, 'problemIsolation');
+  assert.equal(batches.reduce((total, batch) => total + (Number(batch.currentQuantity) || 0), 0), 1000);
+  assert.equal(dashboard.attentionBatches.some((batch) => batch.code === 'VK-PARENT'), false);
+  assert.equal(dashboard.attentionBatches.some((batch) => batch.code === 'VK-ISO'), true);
+});
+
+run('removes released isolated batch from active problem and quarantine lists after recovery', () => {
+  const reports = [report('isolation-recovery-child', '2026-07-17T09:05:00.000Z', [{
+    cardId: 'isolated-child',
+    code: 'VK-ISO',
+    cultureName: 'Мирт',
+    stage: 'Теплица',
+    batchStatus: 'quarantine',
+    originType: 'problemIsolation',
+    parentCardId: 'parent-card',
+    parentCode: 'VK-PARENT',
+    currentQuantity: 500,
+    activeProblemQuantity: 0,
+    healthStatus: 'healthy',
+    isolationStatus: 'released',
+    updatedAt: '2026-07-17T09:05:00.000Z',
+    events: [
+      { eventId: 'problem-origin-1', type: 'problem', createdAt: '2026-07-16T08:00:00.000Z', affectedQuantity: 500, problemType: 'Контаминация' },
+      { eventId: 'problem-isolation-1', type: 'problemIsolation', createdAt: '2026-07-16T09:00:00.000Z', count: 500, extraFields: { childCode: 'VK-ISO', parentCode: 'VK-PARENT', sourceProblemEventId: 'problem-origin-1', healthStatus: 'infected', isolationStatus: 'isolated', activeProblemQuantity: 500 } },
+      { eventId: 'problem-recovery-1', type: 'problemRecovery', createdAt: '2026-07-17T09:05:00.000Z', count: 500, currentQuantity: 500, extraFields: { healthStatus: 'healthy', isolationStatus: 'released', activeProblemQuantity: 0, unisolatedProblemQuantity: 0 } }
+    ]
+  }])];
+
+  const [batch] = getLatestBatchSnapshots(reports);
+  const dashboard = buildDashboard(reports, reports[0], reports, { period: 'all' });
+
+  assert.equal(batch.currentQuantity, 500);
+  assert.equal(batch.activeProblemQuantity, 0);
+  assert.equal(batch.originType, 'problemIsolation');
+  assert.equal(batch.stage, 'Теплица');
+  assert.equal(batch.healthStatus, 'healthy');
+  assert.equal(batch.isolationStatus, 'released');
+  assert.equal(dashboard.attentionBatches.some((item) => item.code === 'VK-ISO'), false);
+  assert.equal(dashboard.current.quarantineBatches, 0);
+  assert.equal(dashboard.recentEvents.some((event) => event.eventId === 'problem-origin-1'), true);
+  assert.equal(dashboard.recentEvents.some((event) => event.eventId === 'problem-isolation-1'), true);
+  assert.equal(dashboard.recentEvents.some((event) => event.eventId === 'problem-recovery-1'), true);
+});
+
+run('keeps cloned child quantity separate from parent for childCardId propagation and preserves legacy snapshot behavior', () => {
+  const reports = [
+    report('clone-parent-childid', '2026-07-18T09:00:00.000Z', [{
+      cardId: 'parent-card',
+      code: 'VK-PARENT',
+      cultureName: 'Мирт',
+      stage: 'Теплица',
+      batchStatus: 'active',
+      currentQuantity: 500,
+      updatedAt: '2026-07-18T09:00:00.000Z',
+      events: [
+        { eventId: 'propagation-1', type: 'propagation', createdAt: '2026-07-18T09:00:00.000Z', count: 200, currentQuantity: 500, extraFields: { childCardId: 'clone-child', childCode: 'VK-CLONE', parentCardId: 'parent-card', parentCode: 'VK-PARENT', generation: 1, propagationMethod: 'Черенкование' } }
+      ]
+    }]),
+    report('clone-child-childid', '2026-07-18T09:05:00.000Z', [{
+      cardId: 'clone-child',
+      code: 'VK-CLONE',
+      cultureName: 'Мирт',
+      stage: 'Теплица',
+      batchStatus: 'active',
+      originType: 'cloned',
+      parentCardId: 'parent-card',
+      parentCode: 'VK-PARENT',
+      currentQuantity: 200,
+      updatedAt: '2026-07-18T09:05:00.000Z',
+      events: [
+        { eventId: 'cloned-from-parent-1', type: 'propagation', createdAt: '2026-07-18T09:05:00.000Z', count: 200, extraFields: { parentCardId: 'parent-card', parentCode: 'VK-PARENT', generation: 1, propagationMethod: 'Черенкование' } }
+      ]
+    }]),
+    report('clone-legacy-parent', '2026-07-18T10:00:00.000Z', [{
+      cardId: 'legacy-parent',
+      code: 'VK-LEGACY',
+      cultureName: 'Мирт',
+      stage: 'Теплица',
+      batchStatus: 'active',
+      currentQuantity: 700,
+      updatedAt: '2026-07-18T10:00:00.000Z',
+      events: [
+        { eventId: 'propagation-legacy-1', type: 'propagation', createdAt: '2026-07-18T10:00:00.000Z', count: 200, currentQuantity: 700, extraFields: { parentCardId: 'legacy-parent', parentCode: 'VK-LEGACY', generation: 1, propagationMethod: 'Черенкование' } }
+      ]
+    }])
+  ];
+
+  const batches = getLatestBatchSnapshots(reports);
+  const parent = batches.find((batch) => batch.code === 'VK-PARENT');
+  const child = batches.find((batch) => batch.code === 'VK-CLONE');
+  const legacyParent = batches.find((batch) => batch.code === 'VK-LEGACY');
+
+  assert.equal(parent.currentQuantity, 500);
+  assert.equal(child.currentQuantity, 200);
+  assert.equal(parent.currentQuantity + child.currentQuantity, 700);
+  assert.equal(child.originType, 'cloned');
+  assert.equal(legacyParent.currentQuantity, 700);
+});

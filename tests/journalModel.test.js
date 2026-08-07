@@ -790,3 +790,13 @@ if (process.exitCode) process.exit(process.exitCode);
 
 
 
+
+
+run('shows isolation and recovery metadata in the global journal', () => {
+  const journal = buildJournalPageModel([{ reportId: 'isolation-journal-report', createdAt: '2026-07-16T09:00:00.000Z', cards: [{ ...card, events: [{ eventId: 'isolation-event', type: 'problemIsolation', date: '2026-07-16T09:00:00.000Z', count: 3, extraFields: { parentCode: 'VK-PARENT', childCode: 'VK-ISO', sourceProblemEventId: 'problem-origin-1', healthStatus: 'infected', isolationStatus: 'isolated', activeProblemQuantity: 3 } }, { eventId: 'recovery-event', type: 'problemRecovery', date: '2026-07-17T09:00:00.000Z', count: 3, currentQuantity: 10, extraFields: { healthStatus: 'healthy', isolationStatus: 'released', activeProblemQuantity: 0 } }] }], raw: { cards: [{ events: [{ eventId: 'isolation-event' }, { eventId: 'recovery-event' }] }] } }], { category: 'problems' });
+  assert.equal(journal.events.length, 2);
+  assert.ok(journal.events.some((event) => event.title.includes('Изол')));
+  assert.ok(journal.events.some((event) => event.title.includes('Проблема')));
+  const isolationEvent = journal.events.find((event) => event.id === 'isolation-event');
+  assert.ok(isolationEvent.details.some((item) => item.label === 'Источник проблемы' && item.value === 'problem-origin-1'));
+});

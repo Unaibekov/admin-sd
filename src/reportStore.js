@@ -1,4 +1,4 @@
-const fs = require('fs/promises');
+﻿const fs = require('fs/promises');
 const fsSync = require('fs');
 const os = require('os');
 const path = require('path');
@@ -6,20 +6,130 @@ const crypto = require('crypto');
 const unzipper = require('unzipper');
 const { pipeline } = require('stream/promises');
 
-const DATA_DIR = path.join(__dirname, '..', 'data');
+const DATA_DIR = path.resolve(process.env.SADOVNIK_DATA_DIR || path.join(__dirname, '..', 'data'));
 const REPORTS_DIR = path.join(DATA_DIR, 'reports');
 const HIDDEN_REPORTS_PATH = path.join(REPORTS_DIR, '.hidden-report-ids.json');
+const ZIP_LIMITS = {
+  maxEntries: Number(process.env.SADOVNIK_MAX_ZIP_ENTRIES || 512),
+  maxEntryBytes: Number(process.env.SADOVNIK_MAX_ZIP_ENTRY_BYTES || 25 * 1024 * 1024),
+  maxTotalBytes: Number(process.env.SADOVNIK_MAX_ZIP_TOTAL_BYTES || 100 * 1024 * 1024),
+  maxPathDepth: Number(process.env.SADOVNIK_MAX_ZIP_PATH_DEPTH || 5),
+  maxPathLength: Number(process.env.SADOVNIK_MAX_ZIP_PATH_LENGTH || 180)
+};
+const STAGE_ORDER = [
+  'Введение в культуру',
+  'Клонирование',
+  'Адаптация',
+  'Теплица',
+  'Закалка',
+  'Высадка'
+];
+const STAGE_ALIASES = {
+  introduction: STAGE_ORDER[0],
+  initiation: STAGE_ORDER[0],
+  'introduction to culture': STAGE_ORDER[0],
+  cloning: STAGE_ORDER[1],
+  propagation: STAGE_ORDER[1],
+  adaptation: STAGE_ORDER[2],
+  acclimatization: STAGE_ORDER[2],
+  greenhouse: STAGE_ORDER[3],
+  hardening: STAGE_ORDER[4],
+  planting: STAGE_ORDER[5],
+  transplanting: STAGE_ORDER[5]
+};
+const STAGE_KEYS = new Map([
+  ...STAGE_ORDER.map((stage) => [normalizeText(stage), stage]),
+  ...Object.entries(STAGE_ALIASES).map(([alias, stage]) => [normalizeText(alias), stage])
+]);
+
 function safeReportId(value) {
   const input = String(value || '').trim();
   const cleaned = input.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
   return cleaned || 'report';
 }
 
+function buildImportFallbackReportId(rawReport, originalName) {
+  const fileStem = path.parse(String(originalName || '')).name;
+  const baseId = safeReportId(fileStem);
+  const fingerprint = crypto
+    .createHash('sha256')
+    .update(JSON.stringify(rawReport || {}))
+    .digest('hex')
+    .slice(0, 8);
+
+  return baseId === 'report' ? `report-${fingerprint}` : `${baseId}-${fingerprint}`;
+}
+
+function createHttpError(message, userMessage, statusCode = 400) {
+  const error = new Error(message);
+  error.userMessage = userMessage;
+  error.statusCode = statusCode;
+  return error;
+}
+
+function warnSkippedReport(reportId, context, error) {
+  const reason = error && error.message ? error.message : String(error || 'unknown error');
+  console.warn(`[reportStore] Skipping invalid report "${reportId}" during ${context}: ${reason}`);
+}
+
+function warnInvalidSummary(reportId, error) {
+  const reason = error && error.message ? error.message : String(error || 'unknown error');
+  console.warn(`[reportStore] Ignoring invalid summary for "${reportId}": ${reason}`);
+}
+
+function normalizeImportError(error) {
+  const targetError = error || new Error('Report import failed.');
+  const message = targetError && targetError.message ? String(targetError.message) : '';
+
+  if (targetError instanceof SyntaxError) {
+    targetError.userMessage = 'Файл report.json содержит невалидный JSON.';
+    targetError.statusCode = 400;
+    targetError.internalCode = 'INVALID_REPORT_JSON';
+    return targetError;
+  }
+
+  if (
+    /zip|central directory|invalid signature|end of central directory|FILE_ENDED|FILE_NOT_FOUND|unexpected end/i.test(message)
+  ) {
+    targetError.userMessage = 'ZIP-архив поврежден или имеет неверный формат.';
+    targetError.statusCode = 400;
+    targetError.internalCode = 'INVALID_ZIP_ARCHIVE';
+    return targetError;
+  }
+
+  if (targetError.userMessage) {
+    return targetError;
+  }
+
+  targetError.userMessage = 'Не удалось обработать загруженный архив.';
+  targetError.statusCode = targetError.statusCode || 400;
+  targetError.internalCode = targetError.internalCode || 'REPORT_IMPORT_FAILED';
+  return targetError;
+}
+
+function createHiddenReportsStateError(error) {
+  const stateError = createHttpError(
+    error && error.message ? error.message : 'Invalid hidden reports state.',
+    'Не удалось прочитать служебное состояние скрытых отчетов.',
+    500
+  );
+  stateError.internalCode = 'INVALID_HIDDEN_REPORTS_STATE';
+  return stateError;
+}
+
+function parseHiddenReportIdsState(content) {
+  const parsed = JSON.parse(String(content || '').replace(/^\uFEFF/, ''));
+  if (!Array.isArray(parsed)) {
+    throw new Error('Hidden reports state must be an array.');
+  }
+  return new Set(parsed.map((value) => safeReportId(value)).filter(Boolean));
+}
+
 function ensureInside(basePath, targetPath) {
   const resolvedBase = path.resolve(basePath) + path.sep;
   const resolvedTarget = path.resolve(targetPath);
   if (!resolvedTarget.startsWith(resolvedBase)) {
-    const error = new Error('Обнаружен небезопасный путь в архиве.');
+    const error = new Error('Detected unsafe path in archive.');
     error.userMessage = 'Архив содержит небезопасный путь к файлу.';
     error.statusCode = 400;
     throw error;
@@ -35,23 +145,89 @@ async function pathExists(targetPath) {
   }
 }
 
-async function readHiddenReportIds() {
-  try {
-    const content = await fs.readFile(HIDDEN_REPORTS_PATH, 'utf8');
-    const parsed = JSON.parse(content);
-    if (!Array.isArray(parsed)) {
-      return new Set();
-    }
-    return new Set(parsed.map((value) => safeReportId(value)).filter(Boolean));
-  } catch {
-    return new Set();
+function assertValidIsoLikeDate(value, fieldName) {
+  if (value === undefined || value === null || value === '') {
+    return;
+  }
+
+  const timestamp = Date.parse(String(value));
+  if (Number.isNaN(timestamp)) {
+    throw createHttpError(
+      `Invalid ${fieldName}: ${value}`,
+      'Отчет содержит некорректную дату.',
+      400
+    );
   }
 }
 
-async function writeHiddenReportIds(reportIds) {
-  await fs.mkdir(REPORTS_DIR, { recursive: true });
-  const uniqueIds = [...new Set(reportIds.map((value) => safeReportId(value)).filter(Boolean))].sort();
-  await fs.writeFile(HIDDEN_REPORTS_PATH, `${JSON.stringify(uniqueIds, null, 2)}\n`, 'utf8');
+function assertObjectRecord(value, fieldName) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw createHttpError(
+      `Invalid ${fieldName} shape.`,
+      'Отчет содержит некорректную структуру данных.',
+      400
+    );
+  }
+}
+
+function normalizeArchiveEntryPath(rawPath) {
+  const raw = String(rawPath || '').replace(/\0/g, '').trim();
+  if (!raw) {
+    return '';
+  }
+
+  if (raw.startsWith('/') || raw.startsWith('\\') || /^[a-zA-Z]:/.test(raw) || raw.includes('://')) {
+    throw createHttpError(
+      `Unsafe archive path: ${raw}`,
+      'Архив содержит небезопасный путь к файлу.',
+      400
+    );
+  }
+
+  const parts = raw
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter(Boolean);
+
+  if (parts.some((part) => part === '.' || part === '..')) {
+    throw createHttpError(
+      `Path traversal attempt: ${raw}`,
+      'Архив содержит небезопасный путь к файлу.',
+      400
+    );
+  }
+
+  const normalizedPath = parts.join('/');
+  if (normalizedPath.length > ZIP_LIMITS.maxPathLength) {
+    throw createHttpError(
+      `Archive path too long: ${normalizedPath}`,
+      'Архив содержит слишком длинный путь к файлу.',
+      400
+    );
+  }
+
+  const depth = Math.max(parts.length - 1, 0);
+  if (depth > ZIP_LIMITS.maxPathDepth) {
+    throw createHttpError(
+      `Archive path too deep: ${normalizedPath}`,
+      'Архив содержит слишком глубокую вложенность каталогов.',
+      400
+    );
+  }
+
+  return normalizedPath;
+}
+
+async function readHiddenReportIds() {
+  try {
+    const content = await fs.readFile(HIDDEN_REPORTS_PATH, 'utf8');
+    return parseHiddenReportIdsState(content);
+  } catch (error) {
+    if (error && error.code === 'ENOENT') {
+      return new Set();
+    }
+    throw createHiddenReportsStateError(error);
+  }
 }
 
 function toArray(value) {
@@ -69,6 +245,21 @@ function firstString(source, keys) {
     }
     if (typeof value === 'boolean') {
       return value ? 'true' : 'false';
+    }
+  }
+  return '';
+}
+
+function isVisiblePlantPart(value) {
+  const text = String(value || '').trim();
+  return text && text.toLowerCase() !== 'отсутствует';
+}
+
+function firstVisibleString(source, keys) {
+  for (const key of keys) {
+    const value = source && source[key];
+    if (isVisiblePlantPart(value)) {
+      return String(value).trim();
     }
   }
   return '';
@@ -99,51 +290,8 @@ function flattenText(value, output) {
   }
 }
 
-function normalizePhotoPaths(card, reportId) {
-  const photos = [];
-  const pushPath = (value) => {
-    if (typeof value !== 'string' || !value.trim()) return;
-    const normalized = value.replace(/\\/g, '/').replace(/^\/+/, '');
-    if (normalized.startsWith('..')) return;
-    if (normalized === 'report.json') return;
-    if (normalized.includes('://')) return;
-    photos.push(normalized);
-  };
-  const pushValue = (value) => {
-    if (Array.isArray(value)) {
-      value.forEach(pushPath);
-      return;
-    }
-    if (value && typeof value === 'object') {
-      const nested = firstString(value, ['uri', 'path', 'file', 'name']);
-      if (nested) {
-        pushPath(nested);
-        return;
-      }
-    }
-    pushPath(value);
-  };
-
-  pushValue(card.photos);
-  pushValue(card.photoFiles);
-  pushValue(card.photoPaths);
-  pushValue(card.images);
-  pushValue(card.startPhotoUri);
-  pushValue(card.startPhotoUris);
-  toArray(card.events).forEach((event) => {
-    pushValue(event && event.photos);
-    pushValue(event && event.photoFiles);
-    pushValue(event && event.photoPaths);
-    pushValue(event && event.images);
-    pushValue(event && event.photoUri);
-    pushValue(event && event.photoUris);
-  });
-
-  return [...new Set(photos)];
-}
-
-function normalizeEvent(event, index, options = {}) {
-  const reserved = new Set(['eventId', 'createdBy', 'date', 'createdAt', 'type', 'eventType', 'author', 'user', 'userName', 'comment', 'message', 'problem', 'risk', 'quantity', 'count', 'photos', 'photoPaths', 'images']);
+function _legacyNormalizeEvent(event, index, options = {}) {
+  const reserved = new Set(['eventId', 'createdBy', 'date', 'createdAt', 'type', 'eventType', 'author', 'user', 'userName', 'comment', 'message', 'problem', 'risk', 'quantity', 'count', 'photos', 'photoPath', 'photoPaths', 'images']);
   const date = firstString(event, ['date', 'createdAt', 'time', 'timestamp']);
   const type = firstString(event, ['type', 'eventType', 'name']) || `Event ${index + 1}`;
   const author = firstString(event, ['author', 'user', 'userName']);
@@ -168,7 +316,7 @@ function normalizeEvent(event, index, options = {}) {
   };
 }
 
-function normalizeCard(card, index, reportId) {
+function _legacyNormalizeCard(card, index, reportId, reportAuthor = '') {
   const reserved = new Set([
     'code',
     'partyCode',
@@ -183,6 +331,7 @@ function normalizeCard(card, index, reportId) {
     'place',
     'events',
     'photos',
+    'photoPath',
     'photoPaths',
     'images',
     'problem',
@@ -191,18 +340,18 @@ function normalizeCard(card, index, reportId) {
     'author'
   ]);
 
-  const fallbackCreatedBy = firstString(card, ['author', 'user', 'userName']);
-  const events = toArray(card.events).map((event, eventIndex) => normalizeEvent(event, eventIndex, {
+  const fallbackCreatedBy = firstString(card, ['author', 'user', 'userName']) || reportAuthor;
+  const events = toArray(card.events).map((event, eventIndex) => _legacyNormalizeEvent(event, eventIndex, {
     reportId,
     cardIndex: index + 1,
     fallbackCreatedBy
   }));
   const photos = normalizePhotoPaths(card, reportId);
   const code = firstString(card, ['code', 'partyCode', 'partyId', 'party_id', 'id']) || `card-${index + 1}`;
-  const culture = firstString(card, ['culture', 'crop', 'plant']);
-  const variety = firstString(card, ['variety', 'cultivar']);
-  const sort = firstString(card, ['sort', 'grade']);
-  const stage = firstString(card, ['stage', 'phase']);
+  const culture = firstVisibleString(card, ['culture', 'crop', 'plant']);
+  const variety = firstVisibleString(card, ['variety', 'cultivar']);
+  const sort = firstVisibleString(card, ['sort', 'grade']);
+  const stage = canonicalizeStage(firstString(card, ['stage', 'phase']));
   const status = firstString(card, ['status', 'partyStatus']);
   const initialCount = firstString(card, ['initialCount', 'startCount', 'plannedCount']);
   const currentCount = firstString(card, ['currentCount', 'remainingCount', 'balance']);
@@ -210,7 +359,7 @@ function normalizeCard(card, index, reportId) {
   const problem = firstString(card, ['problem']);
   const risk = firstString(card, ['risk']);
   const date = firstString(card, ['date', 'createdAt', 'time']);
-  const author = firstString(card, ['author', 'user', 'userName']);
+  const author = firstString(card, ['author', 'user', 'userName']) || reportAuthor;
 
   const searchableText = [];
   flattenText(card, searchableText);
@@ -237,7 +386,7 @@ function normalizeCard(card, index, reportId) {
   };
 }
 
-function deriveSummary(rawSummary, cards) {
+function _legacyDeriveSummary(rawSummary, cards) {
   const summary = {
     cardsCount: cards.length,
     eventsCount: 0,
@@ -262,9 +411,9 @@ function deriveSummary(rawSummary, cards) {
   if (rawSummary && typeof rawSummary === 'object') {
     for (const key of Object.keys(summary)) {
       if (key === 'photosCount') continue;
-      const value = rawSummary[key];
-      if (Number.isFinite(Number(value))) {
-        summary[key] = Number(value);
+      const value = toFiniteSummaryNumber(rawSummary[key]);
+      if (value !== null) {
+        summary[key] = value;
       }
     }
   }
@@ -274,8 +423,9 @@ function deriveSummary(rawSummary, cards) {
 
 function getStorageUrl(reportId, relativePath) {
   const cleanId = safeReportId(reportId);
-  const cleanPath = relativePath.split('/').map((segment) => encodeURIComponent(segment)).join('/');
-  return `/storage/reports/${encodeURIComponent(cleanId)}/${cleanPath}`;
+  const normalizedPath = String(relativePath || '').replace(/\\/g, '/').replace(/^\/+/, '');
+  const cleanPath = normalizedPath.replace(/^photos\//, '').split('/').map((segment) => encodeURIComponent(segment)).join('/');
+  return `/reports/${encodeURIComponent(cleanId)}/photos/${cleanPath}`;
 }
 
 function formatDateValue(value) {
@@ -301,16 +451,70 @@ function formatDateOnly(value) {
   return `${year}-${month}-${day}`;
 }
 
+function resolveReportAuthor(report = {}) {
+  const user = report && report.user ? report.user : {};
+  const displayName = String(user.displayName || '').trim();
+  const fullName = [user.firstName, user.lastName].filter(Boolean).join(' ').trim();
+  const author = String(report.author || '').trim();
+  const userName = String(report.userName || '').trim();
+  return displayName || fullName || author || userName || 'Автор не указан';
+}
+
 function parseReport(raw, options = {}) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    const error = new Error('report.json должен быть объектом.');
+    const error = new Error('report.json must be an object.');
     error.userMessage = 'В report.json должен быть JSON-объект.';
     error.statusCode = 400;
     throw error;
   }
 
+  if (!Array.isArray(raw.cards)) {
+    throw createHttpError(
+      'report.json cards must be an array.',
+      'Отчет содержит некорректную структуру: cards должен быть массивом.',
+      400
+    );
+  }
+  if (raw.user !== undefined && raw.user !== null) {
+    assertObjectRecord(raw.user, 'user');
+  }
+  if (raw.summary !== undefined && raw.summary !== null) {
+    assertObjectRecord(raw.summary, 'summary');
+  }
+  assertValidIsoLikeDate(raw.createdAt, 'createdAt');
+
   const reportId = safeReportId(raw.reportId || options.fallbackId || 'report');
-  const cards = toArray(raw.cards).map((card, index) => normalizeCard(card, index, reportId));
+  const reportAuthor = resolveReportAuthor(raw);
+  const eventFallbackAuthor = reportAuthor === 'Автор не указан' ? '' : reportAuthor;
+  const cards = raw.cards.map((card, index) => {
+    assertObjectRecord(card, `cards[${index}]`);
+    if (card.events !== undefined && !Array.isArray(card.events)) {
+      throw createHttpError(
+        `cards[${index}].events must be an array.`,
+        'Отчет содержит некорректную структуру: events должен быть массивом.',
+        400
+      );
+    }
+    if (!firstString(card, ['cardId', 'code', 'partyCode', 'partyId', 'party_id', 'id'])) {
+      throw createHttpError(
+        `cards[${index}] is missing card identifier.`,
+        'Отчет содержит карточку без идентификатора.',
+        400
+      );
+    }
+    assertValidIsoLikeDate(firstString(card, ['createdAt', 'date']), `cards[${index}].createdAt`);
+    assertValidIsoLikeDate(firstString(card, ['updatedAt']), `cards[${index}].updatedAt`);
+
+    for (const [eventIndex, event] of toArray(card.events).entries()) {
+      assertObjectRecord(event, `cards[${index}].events[${eventIndex}]`);
+      assertValidIsoLikeDate(firstString(event, ['createdAt', 'timestamp', 'date']), `cards[${index}].events[${eventIndex}]`);
+    }
+
+    return normalizeCard(card, index, reportId, {
+      reportAuthor: eventFallbackAuthor,
+      reportUserId: firstString(raw.user || {}, ['userId'])
+    });
+  });
   const seenEventIds = new Map();
 
   for (const card of cards) {
@@ -332,6 +536,8 @@ function parseReport(raw, options = {}) {
     reportId,
     createdAt: raw.createdAt || new Date().toISOString(),
     deviceId: firstString(raw, ['deviceId']),
+    author: firstString(raw, ['author']),
+    userName: firstString(raw, ['userName']),
     user: {
       userId: firstString(raw.user || {}, ['userId']),
       firstName: firstString(raw.user || {}, ['firstName']),
@@ -397,11 +603,128 @@ function mergeUniqueStrings(left = [], right = []) {
   return values;
 }
 
+function mergeUniqueValues(left = [], right = []) {
+  const values = [];
+  const seen = new Set();
+
+  for (const value of [...toArray(left), ...toArray(right)]) {
+    const key = buildMergeValueKey(value);
+    if (!key || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    values.push(typeof value === 'string' ? value.trim() : value);
+  }
+
+  return values;
+}
+
+function buildMergeValueKey(value) {
+  if (typeof value === 'string') {
+    const text = value.trim();
+    return text ? `string:${text.toLowerCase()}` : '';
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return `number:${value}`;
+  }
+  if (typeof value === 'boolean') {
+    return `boolean:${value}`;
+  }
+  if (value && typeof value === 'object') {
+    const alias = firstString(value, ['uri', 'path', 'file', 'name', 'photoPath', 'photoUri']);
+    if (alias) {
+      return `photo:${alias.toLowerCase()}`;
+    }
+    return `object:${JSON.stringify(value)}`;
+  }
+  return '';
+}
+
 function mergeShallowObjects(left, right) {
   return {
     ...(left && typeof left === 'object' ? left : {}),
     ...(right && typeof right === 'object' ? right : {})
   };
+}
+
+function mergeObjectWithPreferredValues(existing, incoming, keys = []) {
+  const merged = mergeShallowObjects(existing, incoming);
+
+  for (const key of keys) {
+    const preferred = firstNonEmptyValue(
+      incoming && incoming[key],
+      existing && existing[key]
+    );
+
+    if (preferred !== undefined) {
+      merged[key] = preferred;
+    }
+  }
+
+  return merged;
+}
+
+function mergeObjectWithPreferredEntries(existing, incoming) {
+  const merged = mergeShallowObjects(existing, incoming);
+  const keys = new Set([
+    ...Object.keys(existing && typeof existing === 'object' ? existing : {}),
+    ...Object.keys(incoming && typeof incoming === 'object' ? incoming : {})
+  ]);
+
+  for (const key of keys) {
+    if (isPlainObjectValue(existing && existing[key]) && isPlainObjectValue(incoming && incoming[key])) {
+      merged[key] = mergeObjectWithPreferredEntries(existing[key], incoming[key]);
+      continue;
+    }
+
+    const preferred = firstNonEmptyValue(
+      incoming && incoming[key],
+      existing && existing[key]
+    );
+
+    if (preferred !== undefined) {
+      merged[key] = preferred;
+    }
+  }
+
+  return merged;
+}
+
+function isPlainObjectValue(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function resolveExtraFieldsSource(parsedEntity, rawEntity) {
+  if (parsedEntity && typeof parsedEntity.extraFields === 'object' && !Array.isArray(parsedEntity.extraFields)) {
+    return parsedEntity.extraFields;
+  }
+  if (rawEntity && typeof rawEntity.extraFields === 'object' && !Array.isArray(rawEntity.extraFields)) {
+    return rawEntity.extraFields;
+  }
+  return null;
+}
+
+function toFiniteSummaryNumber(value) {
+  if (typeof value === 'string' && !value.trim()) {
+    return null;
+  }
+
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function canonicalizeStage(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  return STAGE_KEYS.get(normalizeText(text)) || text;
+}
+
+function normalizeText(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function isUnknownAuthor(value) {
+  return ['unknown', 'неизвестно', 'local-user'].includes(normalizeText(value));
 }
 
 function mergeCardRaw(existingCardRaw, incomingCardRaw, existingParsedCard, incomingParsedCard) {
@@ -448,10 +771,16 @@ function mergeCardRaw(existingCardRaw, incomingCardRaw, existingParsedCard, inco
     'riskLevel',
     'activeProblemQuantity',
     'healthyQuantity',
+    'healthStatus',
+    'isolationStatus',
+    'unisolatedProblemQuantity',
     'originType',
     'parentCardId',
     'parentCode',
     'sourceEventId',
+    'sourceProblemEventId',
+    'childCardId',
+    'childCode',
     'generation',
     'propagatedAt',
     'propagationMethod',
@@ -460,7 +789,10 @@ function mergeCardRaw(existingCardRaw, incomingCardRaw, existingParsedCard, inco
     'date',
     'author',
     'user',
-    'userName'
+    'userName',
+    'photoPath',
+    'photoUri',
+    'startPhotoUri'
   ];
 
   for (const key of scalarKeys) {
@@ -472,10 +804,36 @@ function mergeCardRaw(existingCardRaw, incomingCardRaw, existingParsedCard, inco
     }
   }
 
-  merged.photos = mergeUniqueStrings(existingCardRaw && existingCardRaw.photos, incomingCardRaw && incomingCardRaw.photos);
+  merged.photos = mergeUniqueValues(existingCardRaw && existingCardRaw.photos, incomingCardRaw && incomingCardRaw.photos);
   merged.photoFiles = mergeUniqueStrings(existingCardRaw && existingCardRaw.photoFiles, incomingCardRaw && incomingCardRaw.photoFiles);
+  merged.photoPath = firstNonEmptyValue(
+    existingCardRaw && existingCardRaw.photoPath,
+    incomingCardRaw && incomingCardRaw.photoPath
+  );
   merged.photoPaths = mergeUniqueStrings(existingCardRaw && existingCardRaw.photoPaths, incomingCardRaw && incomingCardRaw.photoPaths);
-  merged.images = mergeUniqueStrings(existingCardRaw && existingCardRaw.images, incomingCardRaw && incomingCardRaw.images);
+  merged.photoPaths = mergeUniqueStrings(
+    merged.photoPaths,
+    [existingCardRaw && existingCardRaw.photoPath, incomingCardRaw && incomingCardRaw.photoPath].filter(Boolean)
+  );
+  merged.images = mergeUniqueValues(existingCardRaw && existingCardRaw.images, incomingCardRaw && incomingCardRaw.images);
+  merged.photoUri = firstNonEmptyValue(
+    existingCardRaw && existingCardRaw.photoUri,
+    incomingCardRaw && incomingCardRaw.photoUri
+  );
+  merged.photoUris = mergeUniqueStrings(existingCardRaw && existingCardRaw.photoUris, incomingCardRaw && incomingCardRaw.photoUris);
+  merged.photoUris = mergeUniqueStrings(
+    merged.photoUris,
+    [existingCardRaw && existingCardRaw.photoUri, incomingCardRaw && incomingCardRaw.photoUri].filter(Boolean)
+  );
+  merged.startPhotoUri = firstNonEmptyValue(
+    existingCardRaw && existingCardRaw.startPhotoUri,
+    incomingCardRaw && incomingCardRaw.startPhotoUri
+  );
+  merged.startPhotoUris = mergeUniqueStrings(existingCardRaw && existingCardRaw.startPhotoUris, incomingCardRaw && incomingCardRaw.startPhotoUris);
+  merged.startPhotoUris = mergeUniqueStrings(
+    merged.startPhotoUris,
+    [existingCardRaw && existingCardRaw.startPhotoUri, incomingCardRaw && incomingCardRaw.startPhotoUri].filter(Boolean)
+  );
 
   const existingEvents = toArray(existingCardRaw && existingCardRaw.events);
   const incomingEvents = toArray(incomingCardRaw && incomingCardRaw.events);
@@ -499,8 +857,74 @@ function mergeCardRaw(existingCardRaw, incomingCardRaw, existingParsedCard, inco
     const eventKey = normalizeMergeKey(firstNonEmptyValue(parsedEvent.eventId, event && event.eventId, `${index + 1}`));
     const existingIndex = eventIndexByKey.get(eventKey);
     if (existingIndex !== undefined) {
-      mergedEvents[existingIndex] = mergeShallowObjects(mergedEvents[existingIndex], event);
-      mergedEvents[existingIndex].photos = mergeUniqueStrings(mergedEvents[existingIndex].photos, event.photos);
+      const existingEvent = mergedEvents[existingIndex];
+      mergedEvents[existingIndex] = mergeObjectWithPreferredValues(existingEvent, event, [
+        'eventId',
+        'createdBy',
+        'date',
+        'createdAt',
+        'time',
+        'timestamp',
+        'type',
+        'eventType',
+        'title',
+        'stage',
+        'author',
+        'user',
+        'userName',
+        'comment',
+        'message',
+        'text',
+        'details',
+        'problem',
+        'problemType',
+        'risk',
+        'riskLevel',
+        'quantity',
+        'count',
+        'previousQuantity',
+        'currentQuantity',
+        'parentCardId',
+        'parentCode',
+        'childCardId',
+        'childCode',
+        'sourceEventId',
+        'sourceProblemEventId',
+        'generation',
+        'propagationMethod',
+        'healthStatus',
+        'isolationStatus',
+        'activeProblemQuantity',
+        'unisolatedProblemQuantity'
+      ]);
+      mergedEvents[existingIndex].photos = mergeUniqueValues(existingEvent && existingEvent.photos, event && event.photos);
+      mergedEvents[existingIndex].photoFiles = mergeUniqueStrings(existingEvent && existingEvent.photoFiles, event && event.photoFiles);
+      mergedEvents[existingIndex].photoPath = firstNonEmptyValue(
+        existingEvent && existingEvent.photoPath,
+        event && event.photoPath
+      );
+      mergedEvents[existingIndex].photoPaths = mergeUniqueStrings(existingEvent && existingEvent.photoPaths, event && event.photoPaths);
+      mergedEvents[existingIndex].photoPaths = mergeUniqueStrings(
+        mergedEvents[existingIndex].photoPaths,
+        [existingEvent && existingEvent.photoPath, event && event.photoPath].filter(Boolean)
+      );
+      mergedEvents[existingIndex].images = mergeUniqueValues(existingEvent && existingEvent.images, event && event.images);
+      mergedEvents[existingIndex].photoUri = firstNonEmptyValue(
+        existingEvent && existingEvent.photoUri,
+        event && event.photoUri
+      );
+      mergedEvents[existingIndex].photoUris = mergeUniqueStrings(existingEvent && existingEvent.photoUris, event && event.photoUris);
+      mergedEvents[existingIndex].photoUris = mergeUniqueStrings(
+        mergedEvents[existingIndex].photoUris,
+        [existingEvent && existingEvent.photoUri, event && event.photoUri].filter(Boolean)
+      );
+      const existingExtraFields = resolveExtraFieldsSource(existingParsedEvents[existingIndex], existingEvent);
+      const incomingExtraFields = resolveExtraFieldsSource(parsedEvent, event);
+      if (existingExtraFields) {
+        mergedEvents[existingIndex].extraFields = mergeObjectWithPreferredEntries(existingExtraFields, incomingExtraFields);
+      } else if (incomingExtraFields) {
+        mergedEvents[existingIndex].extraFields = mergeObjectWithPreferredEntries({}, incomingExtraFields);
+      }
       return;
     }
 
@@ -509,10 +933,12 @@ function mergeCardRaw(existingCardRaw, incomingCardRaw, existingParsedCard, inco
   });
 
   merged.events = mergedEvents;
-  if (existingCardRaw && typeof existingCardRaw.extraFields === 'object' && !Array.isArray(existingCardRaw.extraFields)) {
-    merged.extraFields = mergeShallowObjects(existingCardRaw.extraFields, incomingCardRaw && incomingCardRaw.extraFields);
-  } else if (incomingCardRaw && typeof incomingCardRaw.extraFields === 'object' && !Array.isArray(incomingCardRaw.extraFields)) {
-    merged.extraFields = mergeShallowObjects(incomingCardRaw.extraFields, {});
+  const existingCardExtraFields = resolveExtraFieldsSource(existingParsedCard, existingCardRaw);
+  const incomingCardExtraFields = resolveExtraFieldsSource(incomingParsedCard, incomingCardRaw);
+  if (existingCardExtraFields) {
+    merged.extraFields = mergeObjectWithPreferredEntries(existingCardExtraFields, incomingCardExtraFields);
+  } else if (incomingCardExtraFields) {
+    merged.extraFields = mergeObjectWithPreferredEntries({}, incomingCardExtraFields);
   }
 
   return merged;
@@ -570,7 +996,13 @@ function mergeReportRaw(existingParsed, incomingParsed, finalReportId) {
   mergedRaw.createdAt = firstNonEmptyValue(existingRaw && existingRaw.createdAt, incomingRaw && incomingRaw.createdAt, new Date().toISOString());
   mergedRaw.deviceId = firstNonEmptyValue(existingRaw && existingRaw.deviceId, incomingRaw && incomingRaw.deviceId) || '';
   mergedRaw.testLocation = firstNonEmptyValue(existingRaw && existingRaw.testLocation, incomingRaw && incomingRaw.testLocation) || '';
-  mergedRaw.user = mergeShallowObjects(existingRaw && existingRaw.user, incomingRaw && incomingRaw.user);
+  mergedRaw.author = firstNonEmptyValue(existingRaw && existingRaw.author, incomingRaw && incomingRaw.author) || '';
+  mergedRaw.userName = firstNonEmptyValue(existingRaw && existingRaw.userName, incomingRaw && incomingRaw.userName) || '';
+  mergedRaw.user = mergeObjectWithPreferredValues(
+    existingRaw && existingRaw.user,
+    incomingRaw && incomingRaw.user,
+    ['userId', 'firstName', 'lastName', 'displayName', 'role']
+  );
   mergedRaw.summary = mergeShallowObjects(existingRaw && existingRaw.summary, incomingRaw && incomingRaw.summary);
   mergedRaw.cards = mergedCards;
 
@@ -582,17 +1014,65 @@ function buildReportFingerprint(parsed) {
     return '';
   }
 
+  const normalizeFingerprintValue = (value) => {
+    if (typeof value === 'string') {
+      return value.trim().toLowerCase();
+    }
+    if (typeof value === 'number' || typeof value === 'boolean') {
+      return value;
+    }
+    if (Array.isArray(value)) {
+      return value.map((item) => normalizeFingerprintValue(item));
+    }
+    if (value && typeof value === 'object') {
+      return Object.keys(value)
+        .sort()
+        .reduce((result, key) => {
+          result[key] = normalizeFingerprintValue(value[key]);
+          return result;
+        }, {});
+    }
+    return '';
+  };
+
   const cards = toArray(parsed.cards).map((card) => ({
+    cardId: card && card.cardId ? String(card.cardId).trim().toLowerCase() : '',
     code: card && card.code ? String(card.code).trim().toLowerCase() : '',
     culture: card && card.culture ? String(card.culture).trim().toLowerCase() : '',
     variety: card && card.variety ? String(card.variety).trim().toLowerCase() : '',
     sort: card && card.sort ? String(card.sort).trim().toLowerCase() : '',
     stage: card && card.stage ? String(card.stage).trim().toLowerCase() : '',
     status: card && card.status ? String(card.status).trim().toLowerCase() : '',
+    sterilityStatus: card && card.sterilityStatus ? String(card.sterilityStatus).trim().toLowerCase() : '',
     quantity: card && card.initialCount ? String(card.initialCount).trim().toLowerCase() : '',
     currentCount: card && card.currentCount ? String(card.currentCount).trim().toLowerCase() : '',
     location: card && card.location ? String(card.location).trim().toLowerCase() : '',
+    author: card && card.author ? String(card.author).trim().toLowerCase() : '',
+    problem: card && card.problem ? String(card.problem).trim().toLowerCase() : '',
+    problemType: card && card.problemType ? String(card.problemType).trim().toLowerCase() : '',
+    risk: card && card.risk ? String(card.risk).trim().toLowerCase() : '',
+    riskLevel: card && card.riskLevel ? String(card.riskLevel).trim().toLowerCase() : '',
+    activeProblemQuantity: card && card.activeProblemQuantity ? String(card.activeProblemQuantity).trim().toLowerCase() : '',
+    healthyQuantity: card && card.healthyQuantity ? String(card.healthyQuantity).trim().toLowerCase() : '',
+    healthStatus: card && card.healthStatus ? String(card.healthStatus).trim().toLowerCase() : '',
+    isolationStatus: card && card.isolationStatus ? String(card.isolationStatus).trim().toLowerCase() : '',
+    unisolatedProblemQuantity: card && card.unisolatedProblemQuantity ? String(card.unisolatedProblemQuantity).trim().toLowerCase() : '',
+    originType: card && card.originType ? String(card.originType).trim().toLowerCase() : '',
+    parentCardId: card && card.parentCardId ? String(card.parentCardId).trim().toLowerCase() : '',
+    parentCode: card && card.parentCode ? String(card.parentCode).trim().toLowerCase() : '',
+    sourceEventId: card && card.sourceEventId ? String(card.sourceEventId).trim().toLowerCase() : '',
+    sourceProblemEventId: card && card.sourceProblemEventId ? String(card.sourceProblemEventId).trim().toLowerCase() : '',
+    childCardId: card && card.childCardId ? String(card.childCardId).trim().toLowerCase() : '',
+    childCode: card && card.childCode ? String(card.childCode).trim().toLowerCase() : '',
+    generation: card && card.generation ? String(card.generation).trim().toLowerCase() : '',
+    propagatedAt: card && card.propagatedAt ? String(card.propagatedAt).trim().toLowerCase() : '',
+    propagationMethod: card && card.propagationMethod ? String(card.propagationMethod).trim().toLowerCase() : '',
+    createdAt: card && card.createdAt ? String(card.createdAt).trim().toLowerCase() : '',
+    updatedAt: card && card.updatedAt ? String(card.updatedAt).trim().toLowerCase() : '',
+    photos: normalizeFingerprintValue(card && card.photos),
+    extraFields: normalizeFingerprintValue(card && card.extraFields),
     events: toArray(card && card.events).map((event) => ({
+      eventId: event && event.eventId ? String(event.eventId).trim().toLowerCase() : '',
       createdBy: event && event.createdBy ? String(event.createdBy).trim().toLowerCase() : '',
       date: event && event.date ? String(event.date).trim().toLowerCase() : '',
       createdAt: event && event.createdAt ? String(event.createdAt).trim().toLowerCase() : '',
@@ -601,16 +1081,34 @@ function buildReportFingerprint(parsed) {
       type: event && event.type ? String(event.type).trim().toLowerCase() : '',
       title: event && event.title ? String(event.title).trim().toLowerCase() : '',
       stage: event && event.stage ? String(event.stage).trim().toLowerCase() : '',
+      author: event && event.author ? String(event.author).trim().toLowerCase() : '',
       comment: event && event.comment ? String(event.comment).trim().toLowerCase() : '',
       problem: event && event.problem ? String(event.problem).trim().toLowerCase() : '',
+      problemType: event && event.problemType ? String(event.problemType).trim().toLowerCase() : '',
       risk: event && event.risk ? String(event.risk).trim().toLowerCase() : '',
+      riskLevel: event && event.riskLevel ? String(event.riskLevel).trim().toLowerCase() : '',
       quantity: event && event.quantity ? String(event.quantity).trim().toLowerCase() : '',
       previousQuantity: event && event.previousQuantity ? String(event.previousQuantity).trim().toLowerCase() : '',
-      currentQuantity: event && event.currentQuantity ? String(event.currentQuantity).trim().toLowerCase() : ''
+      currentQuantity: event && event.currentQuantity ? String(event.currentQuantity).trim().toLowerCase() : '',
+      parentCardId: event && event.parentCardId ? String(event.parentCardId).trim().toLowerCase() : '',
+      parentCode: event && event.parentCode ? String(event.parentCode).trim().toLowerCase() : '',
+      childCardId: event && event.childCardId ? String(event.childCardId).trim().toLowerCase() : '',
+      childCode: event && event.childCode ? String(event.childCode).trim().toLowerCase() : '',
+      sourceEventId: event && event.sourceEventId ? String(event.sourceEventId).trim().toLowerCase() : '',
+      sourceProblemEventId: event && event.sourceProblemEventId ? String(event.sourceProblemEventId).trim().toLowerCase() : '',
+      generation: event && event.generation ? String(event.generation).trim().toLowerCase() : '',
+      propagationMethod: event && event.propagationMethod ? String(event.propagationMethod).trim().toLowerCase() : '',
+      healthStatus: event && event.healthStatus ? String(event.healthStatus).trim().toLowerCase() : '',
+      isolationStatus: event && event.isolationStatus ? String(event.isolationStatus).trim().toLowerCase() : '',
+      activeProblemQuantity: event && event.activeProblemQuantity ? String(event.activeProblemQuantity).trim().toLowerCase() : '',
+      unisolatedProblemQuantity: event && event.unisolatedProblemQuantity ? String(event.unisolatedProblemQuantity).trim().toLowerCase() : '',
+      photos: normalizeFingerprintValue(event && event.photos),
+      extraFields: normalizeFingerprintValue(event && event.extraFields)
     }))
   }));
 
   return JSON.stringify({
+    reportId: parsed.reportId ? String(parsed.reportId).trim().toLowerCase() : '',
     createdAt: parsed.createdAt ? String(parsed.createdAt).trim() : '',
     deviceId: parsed.deviceId ? String(parsed.deviceId).trim().toLowerCase() : '',
     user: {
@@ -620,6 +1118,8 @@ function buildReportFingerprint(parsed) {
       displayName: parsed.user && parsed.user.displayName ? String(parsed.user.displayName).trim().toLowerCase() : '',
       role: parsed.user && parsed.user.role ? String(parsed.user.role).trim().toLowerCase() : ''
     },
+    author: parsed.author ? String(parsed.author).trim().toLowerCase() : '',
+    userName: parsed.userName ? String(parsed.userName).trim().toLowerCase() : '',
     testLocation: parsed.testLocation ? String(parsed.testLocation).trim().toLowerCase() : '',
     cards
   });
@@ -650,7 +1150,8 @@ async function loadExistingReportFingerprints() {
           parsed
         });
       }
-    } catch {
+    } catch (error) {
+      warnSkippedReport(reportId, 'dedupe fingerprint loading', error);
       continue;
     }
   }
@@ -668,6 +1169,20 @@ async function readJsonFile(targetPath) {
   return JSON.parse(content.replace(/^\uFEFF/, ''));
 }
 
+async function readStoredSummary(reportId, summaryPath, displayCards, fallbackSummary) {
+  if (!(await pathExists(summaryPath))) {
+    return fallbackSummary;
+  }
+
+  try {
+    const storedSummary = await readJsonFile(summaryPath);
+    return deriveSummary(storedSummary, displayCards);
+  } catch (error) {
+    warnInvalidSummary(reportId, error);
+    return fallbackSummary;
+  }
+}
+
 async function copyDirectory(sourceDir, targetDir) {
   await fs.mkdir(targetDir, { recursive: true });
   const entries = await fs.readdir(sourceDir, { withFileTypes: true });
@@ -682,27 +1197,129 @@ async function copyDirectory(sourceDir, targetDir) {
   }
 }
 
+async function cleanupDirectoryIfExists(targetPath) {
+  if (await pathExists(targetPath)) {
+    await fs.rm(targetPath, { recursive: true, force: true });
+  }
+}
+
+async function replaceDirectoryAtomically(targetPath, stagedPath) {
+  const backupPath = `${targetPath}.backup-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const targetExists = await pathExists(targetPath);
+
+  try {
+    if (targetExists) {
+      await fs.rename(targetPath, backupPath);
+    }
+    await fs.rename(stagedPath, targetPath);
+    await cleanupDirectoryIfExists(backupPath);
+  } catch (error) {
+    if (targetExists && (await pathExists(backupPath)) && !(await pathExists(targetPath))) {
+      await fs.rename(backupPath, targetPath).catch(() => {});
+    }
+    throw normalizeImportError(error);
+  } finally {
+    await cleanupDirectoryIfExists(stagedPath);
+  }
+}
+
 async function extractArchive(archivePath, targetDir) {
   const directory = await unzipper.Open.file(archivePath);
   let foundReport = false;
+  let totalUncompressedBytes = 0;
+  let extractedFilesCount = 0;
+  const seenPaths = new Set();
 
   for (const file of directory.files) {
-    const normalizedPath = file.path.replace(/\\/g, '/').replace(/^\/+/, '');
+    const normalizedPath = normalizeArchiveEntryPath(file.path);
     if (!normalizedPath || normalizedPath.startsWith('__MACOSX/')) {
       continue;
     }
 
-    if (normalizedPath !== 'report.json' && !normalizedPath.startsWith('photos/')) {
-      const error = new Error(`Неожиданный файл в архиве: ${normalizedPath}`);
+    const loweredPath = normalizedPath.toLowerCase();
+    if (seenPaths.has(loweredPath)) {
+      throw createHttpError(
+        `Duplicate archive path: ${normalizedPath}`,
+        'Архив содержит дублирующиеся пути файлов.',
+        400
+      );
+    }
+    seenPaths.add(loweredPath);
+
+    const isPhotosRoot = normalizedPath === 'photos';
+    const isReportJson = normalizedPath === 'report.json';
+    const isPhotoFile = normalizedPath.startsWith('photos/');
+
+    if (!isReportJson && !isPhotosRoot && !isPhotoFile) {
+      const error = new Error(`Unexpected file in archive: ${normalizedPath}`);
       error.userMessage = 'Архив может содержать только report.json и папку photos/.';
       error.statusCode = 400;
       throw error;
+    }
+
+    if (!['Directory', 'File'].includes(file.type)) {
+      throw createHttpError(
+        `Unsupported archive entry type: ${file.type}`,
+        'Архив содержит неподдерживаемый тип файла.',
+        400
+      );
+    }
+
+    if (file.type === 'File') {
+      extractedFilesCount += 1;
+      if (extractedFilesCount > ZIP_LIMITS.maxEntries) {
+        throw createHttpError(
+          `Archive contains too many files: ${extractedFilesCount}`,
+          'Архив содержит слишком много файлов.',
+          400
+        );
+      }
+
+      const entrySize = Number(file.uncompressedSize || 0);
+      if (!Number.isFinite(entrySize) || entrySize < 0) {
+        throw createHttpError(
+          `Archive entry has invalid size: ${normalizedPath}`,
+          'Архив содержит файл с некорректным размером.',
+          400
+        );
+      }
+      if (entrySize > ZIP_LIMITS.maxEntryBytes) {
+        throw createHttpError(
+          `Archive entry too large: ${normalizedPath}`,
+          'Архив содержит слишком большой файл.',
+          400
+        );
+      }
+
+      totalUncompressedBytes += entrySize;
+      if (totalUncompressedBytes > ZIP_LIMITS.maxTotalBytes) {
+        throw createHttpError(
+          `Archive uncompressed size exceeded limit: ${totalUncompressedBytes}`,
+          'Архив слишком большой после распаковки.',
+          400
+        );
+      }
+
+      if (loweredPath.endsWith('.zip')) {
+        throw createHttpError(
+          `Nested zip is not allowed: ${normalizedPath}`,
+          'Архив не должен содержать вложенные ZIP-файлы.',
+          400
+        );
+      }
     }
 
     const targetPath = path.join(targetDir, normalizedPath);
     ensureInside(targetDir, targetPath);
 
     if (file.type === 'Directory') {
+      if (!isPhotosRoot && !isPhotoFile) {
+        throw createHttpError(
+          `Unexpected directory entry: ${normalizedPath}`,
+          'Архив содержит неподдерживаемую структуру каталогов.',
+          400
+        );
+      }
       await fs.mkdir(targetPath, { recursive: true });
       continue;
     }
@@ -715,26 +1332,30 @@ async function extractArchive(archivePath, targetDir) {
   }
 
   if (!foundReport) {
-    const error = new Error('В архиве отсутствует report.json.');
+    const error = new Error('Archive is missing report.json.');
     error.userMessage = 'Архив должен содержать report.json.';
     error.statusCode = 400;
     throw error;
   }
 }
 
-async function processUploadedReport(buffer, originalName) {
+async function processUploadedReport(source, originalName) {
   await fs.mkdir(REPORTS_DIR, { recursive: true });
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sadovnik-'));
   const archivePath = path.join(tempRoot, 'upload.zip');
   const extractedDir = path.join(tempRoot, 'extracted');
 
   try {
-    await fs.writeFile(archivePath, buffer);
+    if (typeof source === 'string') {
+      await fs.copyFile(source, archivePath);
+    } else {
+      await fs.writeFile(archivePath, source);
+    }
     await extractArchive(archivePath, extractedDir);
 
     const reportJsonPath = path.join(extractedDir, 'report.json');
     const rawReport = await readJsonFile(reportJsonPath);
-    const parsed = parseReport(rawReport, { fallbackId: path.parse(originalName).name });
+    const parsed = parseReport(rawReport, { fallbackId: buildImportFallbackReportId(rawReport, originalName) });
     const incomingFingerprint = buildReportFingerprint(parsed);
     const existingReports = await loadExistingReportFingerprints();
     const matchedExisting = existingReports.get(incomingFingerprint) || null;
@@ -769,26 +1390,28 @@ async function processUploadedReport(buffer, originalName) {
       })
     };
 
-    await fs.mkdir(reportDir, { recursive: true });
+    const stagedReportDir = path.join(tempRoot, 'staged-report');
+    if (await pathExists(reportDir)) {
+      await copyDirectory(reportDir, stagedReportDir);
+    } else {
+      await fs.mkdir(stagedReportDir, { recursive: true });
+    }
 
-    await writeJson(reportJsonTarget, storageRaw);
-    await writeJson(path.join(reportDir, 'summary.json'), mergedParsed.summary);
+    await writeJson(path.join(stagedReportDir, 'report.json'), storageRaw);
+    await writeJson(path.join(stagedReportDir, 'summary.json'), mergedParsed.summary);
 
     const photosDir = path.join(extractedDir, 'photos');
-    await fs.mkdir(path.join(reportDir, 'photos'), { recursive: true });
+    await fs.mkdir(path.join(stagedReportDir, 'photos'), { recursive: true });
     const hasPhotos = await pathExists(photosDir);
     if (hasPhotos) {
-      await copyDirectory(photosDir, path.join(reportDir, 'photos'));
+      await copyDirectory(photosDir, path.join(stagedReportDir, 'photos'));
     }
 
-    await fs.copyFile(archivePath, path.join(reportDir, 'original.zip'));
+    await fs.copyFile(archivePath, path.join(stagedReportDir, 'original.zip'));
+    await replaceDirectoryAtomically(reportDir, stagedReportDir);
     return finalReportId;
   } catch (error) {
-    if (!error.userMessage) {
-      error.userMessage = error.message || 'Не удалось обработать загруженный архив.';
-      error.statusCode = error.statusCode || 400;
-    }
-    throw error;
+    throw normalizeImportError(error);
   } finally {
     await fs.rm(tempRoot, { recursive: true, force: true });
   }
@@ -829,22 +1452,26 @@ async function listReports() {
       const availablePhotoSet = new Set(availablePhotoPaths);
       const photoIdentityByPath = await buildPhotoIdentityMap(reportDir, availablePhotoPaths);
       const displayCards = buildDisplayCards(parsed.cards, availablePhotoSet, photoIdentityByPath);
-      let summary = deriveSummary(parsed.summary, displayCards);
-      if (await pathExists(summaryJsonPath)) {
-        const storedSummary = await readJsonFile(summaryJsonPath);
-        summary = deriveSummary(storedSummary, displayCards);
-      }
+      const summary = await readStoredSummary(
+        reportId,
+        summaryJsonPath,
+        displayCards,
+        deriveSummary(parsed.summary, displayCards)
+      );
 
       reports.push({
         reportId: parsed.reportId,
         createdAt: parsed.createdAt,
         displayCreatedAt: formatDateValue(parsed.createdAt),
-        author: parsed.user.displayName || 'Автор не указан',
+        user: parsed.user,
+        userName: parsed.userName,
+        author: resolveReportAuthor(parsed),
         deviceId: parsed.deviceId,
         testLocation: parsed.testLocation,
         summary
       });
-    } catch {
+    } catch (error) {
+      warnSkippedReport(reportId, 'report listing', error);
       continue;
     }
   }
@@ -899,13 +1526,13 @@ async function removeTreeWithRetry(targetPath) {
   throw lastError;
 }
 
-async function removeTree(targetPath) {
+async function _removeTree(targetPath) {
   const stat = await fs.lstat(targetPath);
 
   if (stat.isDirectory()) {
     const entries = await fs.readdir(targetPath, { withFileTypes: true });
     for (const entry of entries) {
-      await removeTree(path.join(targetPath, entry.name));
+      await _removeTree(path.join(targetPath, entry.name));
     }
     await fs.rmdir(targetPath);
     return;
@@ -950,11 +1577,12 @@ async function getReport(reportId) {
   const photoIdentityByPath = await buildPhotoIdentityMap(reportDir, availablePhotoPaths);
   const displayCards = buildDisplayCards(parsed.cards, availablePhotoSet, photoIdentityByPath);
   const summaryPath = path.join(reportDir, 'summary.json');
-  let summary = deriveSummary(parsed.summary, displayCards);
-  if (await pathExists(summaryPath)) {
-    const storedSummary = await readJsonFile(summaryPath);
-    summary = deriveSummary(storedSummary, displayCards);
-  }
+  const summary = await readStoredSummary(
+    cleanId,
+    summaryPath,
+    displayCards,
+    deriveSummary(parsed.summary, displayCards)
+  );
 
   return {
     reportId: parsed.reportId,
@@ -962,6 +1590,7 @@ async function getReport(reportId) {
     displayCreatedAt: formatDateValue(parsed.createdAt),
     deviceId: parsed.deviceId,
     user: parsed.user,
+    author: resolveReportAuthor(parsed),
     testLocation: parsed.testLocation,
     summary,
     cards: displayCards,
@@ -973,8 +1602,9 @@ async function getReport(reportId) {
       }
 
       const relativePath = normalized.startsWith('photos/') ? normalized : `photos/${normalized}`;
-      const absolutePath = path.join(reportDir, relativePath);
-      if (!fsSync.existsSync(absolutePath)) {
+      try {
+        reportPhotoPath(parsed.reportId, relativePath);
+      } catch {
         return '';
       }
 
@@ -1089,7 +1719,7 @@ function buildFilterOptions(cards) {
       return left.localeCompare(right, 'ru');
     });
   return {
-    stages: sortStages(unique((card) => card.stage)),
+    stages: sortStages(unique((card) => canonicalizeStage(card.stage))),
     cultures: unique((card) => card.culture),
     statuses: unique((card) => card.status),
     authors: unique((card) => card.author)
@@ -1110,7 +1740,7 @@ function matchesFilters(card, filters) {
     card.author,
     card.date,
     card.searchText,
-    ...card.events.flatMap((event) => [event.type, event.author, event.comment, event.problem, event.risk, event.date]),
+    ...card.events.flatMap((event) => [event.type, event.createdBy, event.author, event.comment, event.problem, event.risk, event.date]),
     ...card.photos
   ]
     .filter(Boolean)
@@ -1120,15 +1750,15 @@ function matchesFilters(card, filters) {
   if (filters.q && !haystack.includes(filters.q.toLowerCase())) return false;
   if (filters.date) {
     const cardDate = formatDateOnly(card.date) || '';
-    const eventDate = card.events.map((event) => formatDateOnly(event.date)).find(Boolean) || '';
-    if (![cardDate, eventDate].some((value) => value === filters.date || value.includes(filters.date))) return false;
+    const eventDates = card.events.map((event) => formatDateOnly(event.date)).filter(Boolean);
+    if (![cardDate, ...eventDates].some((value) => value === filters.date || value.includes(filters.date))) return false;
   }
   if (filters.author && card.author.toLowerCase() !== filters.author.toLowerCase()) return false;
-  if (filters.stage && card.stage.toLowerCase() !== filters.stage.toLowerCase()) return false;
+  if (filters.stage && normalizeText(canonicalizeStage(card.stage)) !== normalizeText(canonicalizeStage(filters.stage))) return false;
   if (filters.culture && card.culture.toLowerCase() !== filters.culture.toLowerCase()) return false;
   if (filters.status && card.status.toLowerCase() !== filters.status.toLowerCase()) return false;
   if (filters.hasProblems === '1') {
-    const hasProblem = Boolean(card.problem || card.risk || card.events.some((event) => event.problem || event.risk));
+    const hasProblem = isProblemLikeCard(card);
     if (!hasProblem) return false;
   }
   if (filters.hasPhotos === '1' && card.photos.length === 0 && card.events.every((event) => event.photos.length === 0)) {
@@ -1137,43 +1767,94 @@ function matchesFilters(card, filters) {
   return true;
 }
 
-function reportFilePath(reportId, fileName) {
-  const cleanId = safeReportId(reportId);
-  const safeName = path.basename(fileName);
-  if (fsSync.existsSync(HIDDEN_REPORTS_PATH)) {
-    try {
-      const hidden = JSON.parse(fsSync.readFileSync(HIDDEN_REPORTS_PATH, 'utf8'));
-      const hiddenSet = new Set(Array.isArray(hidden) ? hidden.map((value) => safeReportId(value)).filter(Boolean) : []);
-      if (hiddenSet.has(cleanId)) {
-        const error = new Error(`Отчет скрыт: ${cleanId}`);
-        error.userMessage = 'Запрошенный отчет очищен.';
-        error.statusCode = 404;
-        throw error;
-      }
-    } catch (error) {
-      if (error && error.statusCode) {
-        throw error;
-      }
-    }
+function readHiddenReportIdsSync() {
+  if (!fsSync.existsSync(HIDDEN_REPORTS_PATH)) {
+    return new Set();
   }
-  const target = path.join(REPORTS_DIR, cleanId, safeName);
-  if (!fsSync.existsSync(target)) {
-    const error = new Error(`Отсутствует файл: ${safeName}`);
+
+  try {
+    return parseHiddenReportIdsState(fsSync.readFileSync(HIDDEN_REPORTS_PATH, 'utf8'));
+  } catch (error) {
+    throw createHiddenReportsStateError(error);
+  }
+}
+
+function ensureVisibleReportId(reportId) {
+  const cleanId = safeReportId(reportId);
+  if (readHiddenReportIdsSync().has(cleanId)) {
+    const error = new Error(`Hidden report: ${cleanId}`);
+    error.userMessage = 'Запрошенный отчет скрыт.';
+    error.statusCode = 404;
+    error.internalCode = 'HIDDEN_REPORT';
+    throw error;
+  }
+  return cleanId;
+}
+
+function resolveReportPath(reportId, relativePath, options = {}) {
+  const cleanId = ensureVisibleReportId(reportId);
+  const normalized = String(relativePath || '').replace(/\\/g, '/').replace(/^\/+/, '');
+  const parts = normalized.split('/').filter(Boolean);
+
+  if (!parts.length || parts.some((part) => part === '.' || part === '..')) {
+    const error = new Error(`Unsafe report path: ${relativePath}`);
     error.userMessage = 'Запрошенный файл отчета не существует.';
     error.statusCode = 404;
     throw error;
   }
+
+  if (options.mustStartWith && parts[0] !== options.mustStartWith) {
+    const error = new Error(`Unexpected report path root: ${relativePath}`);
+    error.userMessage = 'Запрошенный файл отчета не существует.';
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const reportDir = path.join(REPORTS_DIR, cleanId);
+  const target = path.join(reportDir, ...parts);
+  ensureInside(reportDir, target);
+  if (!fsSync.existsSync(target)) {
+    const error = new Error(`Missing report file: ${normalized}`);
+    error.userMessage = 'Запрошенный файл отчета не существует.';
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (options.mustBeFile) {
+    const stat = fsSync.statSync(target);
+    if (!stat.isFile()) {
+      const error = new Error(`Report path is not a file: ${normalized}`);
+      error.userMessage = 'Запрошенный файл отчета не существует.';
+      error.statusCode = 404;
+      throw error;
+    }
+  }
+
   return target;
 }
 
-function normalizePhotoPaths(card, reportId) {
+function reportFilePath(reportId, fileName) {
+  const safeName = path.basename(fileName);
+  return resolveReportPath(reportId, safeName, { mustBeFile: true });
+}
+
+function reportPhotoPath(reportId, photoPath) {
+  const normalized = String(photoPath || '').replace(/\\/g, '/').replace(/^\/+/, '');
+  const relativePath = normalized.startsWith('photos/') ? normalized : `photos/${normalized}`;
+  return resolveReportPath(reportId, relativePath, { mustStartWith: 'photos', mustBeFile: true });
+}
+
+function normalizePhotoPaths(card, _reportId) {
   const photos = [];
   const pushPath = (value) => {
     if (typeof value !== 'string' || !value.trim()) return;
     const normalized = value.replace(/\\/g, '/').replace(/^\/+/, '');
+    if (normalized.includes('://')) {
+      photos.push(normalized);
+      return;
+    }
     if (normalized.startsWith('..')) return;
     if (normalized === 'report.json') return;
-    if (normalized.includes('://')) return;
     photos.push(normalized);
   };
   const pushValue = (value) => {
@@ -1182,24 +1863,33 @@ function normalizePhotoPaths(card, reportId) {
       return;
     }
     if (value && typeof value === 'object') {
-      const nested = firstString(value, ['uri', 'path', 'file', 'name']);
+      const nested = firstString(value, ['uri', 'path', 'file', 'name', 'photoPath', 'photoUri']);
       if (nested) {
         pushPath(nested);
         return;
       }
+      pushValue(value.photoPaths);
+      pushValue(value.photoUris);
+      pushValue(value.photoFiles);
+      pushValue(value.photos);
+      pushValue(value.images);
     }
     pushPath(value);
   };
 
   pushValue(card.photos);
   pushValue(card.photoFiles);
+  pushValue(card.photoPath);
   pushValue(card.photoPaths);
   pushValue(card.images);
+  pushValue(card.photoUri);
+  pushValue(card.photoUris);
   pushValue(card.startPhotoUri);
   pushValue(card.startPhotoUris);
   toArray(card.events).forEach((event) => {
     pushValue(event && event.photos);
     pushValue(event && event.photoFiles);
+    pushValue(event && event.photoPath);
     pushValue(event && event.photoPaths);
     pushValue(event && event.images);
     pushValue(event && event.photoUri);
@@ -1210,14 +1900,19 @@ function normalizePhotoPaths(card, reportId) {
 }
 
 function normalizeEvent(event, index, options = {}) {
-  const reserved = new Set(['eventId', 'createdBy', 'date', 'createdAt', 'time', 'timestamp', 'type', 'eventType', 'title', 'stage', 'author', 'user', 'userName', 'comment', 'message', 'problem', 'problemType', 'risk', 'riskLevel', 'quantity', 'count', 'previousQuantity', 'currentQuantity', 'photos', 'photoFiles', 'photoPaths', 'images', 'photoUri', 'photoUris', 'extraFields']);
+  const reserved = new Set(['eventId', 'createdBy', 'date', 'createdAt', 'time', 'timestamp', 'type', 'eventType', 'title', 'stage', 'author', 'user', 'userName', 'comment', 'message', 'problem', 'problemType', 'risk', 'riskLevel', 'quantity', 'count', 'previousQuantity', 'currentQuantity', 'parentCardId', 'parentCode', 'childCardId', 'childCode', 'sourceEventId', 'sourceProblemEventId', 'generation', 'propagationMethod', 'healthStatus', 'isolationStatus', 'activeProblemQuantity', 'unisolatedProblemQuantity', 'photos', 'photoFiles', 'photoPath', 'photoPaths', 'images', 'photoUri', 'photoUris', 'extraFields']);
   const createdAt = firstString(event, ['createdAt', 'timestamp']) || firstString(event, ['date', 'time']);
   const date = firstString(event, ['date']) || createdAt;
   const time = firstString(event, ['time']) || '';
   const timestamp = firstString(event, ['timestamp']) || '';
   const type = firstString(event, ['type', 'eventType', 'name']) || `Event ${index + 1}`;
   const author = firstString(event, ['author', 'user', 'userName']);
-  const createdBy = firstString(event, ['createdBy']) || author || options.fallbackCreatedBy || 'Неизвестно';
+  const rawCreatedBy = firstString(event, ['createdBy']);
+  const fallbackCreatedBy = author || options.fallbackCreatedBy || 'Неизвестно';
+  const reportUserId = firstString(options, ['reportUserId']);
+  const createdBy = isUnknownAuthor(rawCreatedBy) || (reportUserId && normalizeText(rawCreatedBy) === normalizeText(reportUserId))
+    ? fallbackCreatedBy
+    : rawCreatedBy || fallbackCreatedBy;
   const eventId = firstString(event, ['eventId']) || `${options.reportId || 'report'}-${options.cardIndex || 0}-${index + 1}`;
   const title = firstString(event, ['title']) || type;
   const stage = firstString(event, ['stage']);
@@ -1229,10 +1924,24 @@ function normalizeEvent(event, index, options = {}) {
   const quantity = firstString(event, ['quantity', 'count']);
   const previousQuantity = firstString(event, ['previousQuantity']);
   const currentQuantity = firstString(event, ['currentQuantity']);
+  const parentCardId = firstString(event, ['parentCardId']);
+  const parentCode = firstString(event, ['parentCode']);
+  const childCardId = firstString(event, ['childCardId']);
+  const childCode = firstString(event, ['childCode']);
+  const sourceEventId = firstString(event, ['sourceEventId']);
+  const sourceProblemEventId = firstString(event, ['sourceProblemEventId']);
+  const generation = firstString(event, ['generation']);
+  const propagationMethod = firstString(event, ['propagationMethod']);
+  const healthStatus = firstString(event, ['healthStatus']);
+  const isolationStatus = firstString(event, ['isolationStatus']);
+  const activeProblemQuantity = firstString(event, ['activeProblemQuantity']);
+  const unisolatedProblemQuantity = firstString(event, ['unisolatedProblemQuantity']);
   const extraFields = pickExtraFields(event || {}, reserved);
   if (event && typeof event.extraFields === 'object' && !Array.isArray(event.extraFields)) {
     Object.assign(extraFields, event.extraFields);
   }
+  const extraProblem = firstString(extraFields, ['problem', 'problemType']);
+  const extraRisk = firstString(extraFields, ['risk', 'riskLevel']);
 
   return {
     eventId,
@@ -1246,19 +1955,31 @@ function normalizeEvent(event, index, options = {}) {
     stage,
     author,
     comment,
-    problem,
-    problemType,
-    risk,
-    riskLevel,
+    problem: problem || extraProblem,
+    problemType: problemType || extraProblem,
+    risk: risk || extraRisk,
+    riskLevel: riskLevel || extraRisk,
     quantity,
     previousQuantity,
     currentQuantity,
+    parentCardId,
+    parentCode,
+    childCardId,
+    childCode,
+    sourceEventId,
+    sourceProblemEventId,
+    generation,
+    propagationMethod,
+    healthStatus,
+    isolationStatus,
+    activeProblemQuantity,
+    unisolatedProblemQuantity,
     photos: normalizePhotoPaths(event || {}, ''),
     extraFields
   };
 }
 
-function normalizeCard(card, index, reportId) {
+function normalizeCard(card, index, reportId, reportContext = '') {
   const reserved = new Set([
     'cardId',
     'code',
@@ -1286,10 +2007,16 @@ function normalizeCard(card, index, reportId) {
     'riskLevel',
     'activeProblemQuantity',
     'healthyQuantity',
+    'healthStatus',
+    'isolationStatus',
+    'unisolatedProblemQuantity',
     'originType',
     'parentCardId',
     'parentCode',
     'sourceEventId',
+    'sourceProblemEventId',
+    'childCardId',
+    'childCode',
     'generation',
     'propagatedAt',
     'propagationMethod',
@@ -1298,29 +2025,40 @@ function normalizeCard(card, index, reportId) {
     'events',
     'photos',
     'photoFiles',
+    'photoPath',
     'photoPaths',
     'images',
+    'photoUri',
+    'photoUris',
+    'startPhotoUri',
+    'startPhotoUris',
     'date',
     'author',
     'extraFields'
   ]);
 
-  const fallbackCreatedBy = firstString(card, ['author', 'user', 'userName']);
+  const reportMetadata = reportContext && typeof reportContext === 'object'
+    ? reportContext
+    : { reportAuthor: reportContext };
+  const reportAuthor = firstString(reportMetadata, ['reportAuthor']);
+  const reportUserId = firstString(reportMetadata, ['reportUserId']);
+  const fallbackCreatedBy = firstString(card, ['author', 'user', 'userName']) || reportAuthor;
   const events = toArray(card.events).map((event, eventIndex) => normalizeEvent(event, eventIndex, {
     reportId,
     cardIndex: index + 1,
-    fallbackCreatedBy
+    fallbackCreatedBy,
+    reportUserId
   }));
   const photos = normalizePhotoPaths(card, reportId);
   const cardId = firstString(card, ['cardId']) || `card-${index + 1}`;
   const code = firstString(card, ['code', 'partyCode', 'partyId', 'party_id', 'id']) || `card-${index + 1}`;
-  const cultureName = firstString(card, ['cultureName', 'culture', 'crop', 'plant']);
-  const speciesName = firstString(card, ['speciesName', 'sort', 'grade']);
-  const varietyName = firstString(card, ['varietyName', 'variety', 'cultivar']);
+  const cultureName = firstVisibleString(card, ['cultureName', 'culture', 'crop', 'plant']);
+  const speciesName = firstVisibleString(card, ['speciesName', 'sort', 'grade']);
+  const varietyName = firstVisibleString(card, ['varietyName', 'variety', 'cultivar']);
   const culture = cultureName;
   const variety = varietyName;
   const sort = speciesName;
-  const stage = firstString(card, ['stage', 'phase']);
+  const stage = canonicalizeStage(firstString(card, ['stage', 'phase']));
   const batchStatus = firstString(card, ['batchStatus', 'status', 'partyStatus']);
   const status = batchStatus;
   const sterilityStatus = firstString(card, ['sterilityStatus']);
@@ -1336,17 +2074,23 @@ function normalizeCard(card, index, reportId) {
   const riskLevel = firstString(card, ['riskLevel']) || risk;
   const activeProblemQuantity = firstString(card, ['activeProblemQuantity']);
   const healthyQuantity = firstString(card, ['healthyQuantity']);
+  const healthStatus = firstString(card, ['healthStatus']);
+  const isolationStatus = firstString(card, ['isolationStatus']);
+  const unisolatedProblemQuantity = firstString(card, ['unisolatedProblemQuantity']);
   const originType = firstString(card, ['originType']);
   const parentCardId = firstString(card, ['parentCardId']);
   const parentCode = firstString(card, ['parentCode']);
   const sourceEventId = firstString(card, ['sourceEventId']);
+  const sourceProblemEventId = firstString(card, ['sourceProblemEventId']);
+  const childCardId = firstString(card, ['childCardId']);
+  const childCode = firstString(card, ['childCode']);
   const generation = firstString(card, ['generation']);
   const propagatedAt = firstString(card, ['propagatedAt']);
   const propagationMethod = firstString(card, ['propagationMethod']);
   const createdAt = firstString(card, ['createdAt', 'date', 'time']);
   const updatedAt = firstString(card, ['updatedAt']);
   const date = createdAt;
-  const author = firstString(card, ['author', 'user', 'userName']);
+  const author = firstString(card, ['author', 'user', 'userName']) || reportAuthor;
 
   const searchableText = [];
   flattenText(card, searchableText);
@@ -1355,6 +2099,8 @@ function normalizeCard(card, index, reportId) {
   if (card && typeof card.extraFields === 'object' && !Array.isArray(card.extraFields)) {
     Object.assign(extraFields, card.extraFields);
   }
+  const extraProblem = firstString(extraFields, ['problem', 'problemType']);
+  const extraRisk = firstString(extraFields, ['risk', 'riskLevel']);
 
   return {
     index,
@@ -1376,16 +2122,22 @@ function normalizeCard(card, index, reportId) {
     currentCount,
     locationDescription,
     location,
-    problem,
-    problemType,
-    risk,
-    riskLevel,
+    problem: problem || extraProblem,
+    problemType: problemType || extraProblem,
+    risk: risk || extraRisk,
+    riskLevel: riskLevel || extraRisk,
     activeProblemQuantity,
     healthyQuantity,
+    healthStatus,
+    isolationStatus,
+    unisolatedProblemQuantity,
     originType,
     parentCardId,
     parentCode,
     sourceEventId,
+    sourceProblemEventId,
+    childCardId,
+    childCode,
     generation,
     propagatedAt,
     propagationMethod,
@@ -1420,17 +2172,7 @@ function deriveSummary(rawSummary, cards) {
   for (const card of cards) {
     summary.eventsCount += card.events.length;
     summary.photosCount += countUniqueCardPhotos(card);
-    if (
-      card.problem ||
-      card.problemType ||
-      card.risk ||
-      card.riskLevel ||
-      String(card.batchStatus || card.status || '').toLowerCase().includes('problem') ||
-      String(card.batchStatus || card.status || '').toLowerCase().includes('risk') ||
-      String(card.batchStatus || card.status || '').toLowerCase().includes('quarantine') ||
-      String(card.sterilityStatus || '').toLowerCase().includes('contamin') ||
-      card.events.some((event) => event.problem || event.problemType || event.risk || event.riskLevel)
-    ) {
+    if (isProblemLikeCard(card)) {
       summary.problemsCount += 1;
     }
 
@@ -1452,24 +2194,95 @@ function deriveSummary(rawSummary, cards) {
   if (rawSummary && typeof rawSummary === 'object') {
     for (const key of Object.keys(summary)) {
       if (key === 'photosCount') continue;
-      const value = rawSummary[key];
-      if (Number.isFinite(Number(value))) {
-        summary[key] = Number(value);
+      const value = toFiniteSummaryNumber(rawSummary[key]);
+      if (value !== null) {
+        summary[key] = value;
       }
     }
-    if (Number.isFinite(Number(rawSummary.problemCount))) {
-      summary.problemCount = Number(rawSummary.problemCount);
-      summary.problemsCount = Number(rawSummary.problemCount);
+    const problemCount = toFiniteSummaryNumber(rawSummary.problemCount);
+    if (problemCount !== null) {
+      summary.problemCount = problemCount;
+      summary.problemsCount = problemCount;
     }
-    if (Number.isFinite(Number(rawSummary.problemsCount))) {
-      summary.problemsCount = Number(rawSummary.problemsCount);
+    const problemsCount = toFiniteSummaryNumber(rawSummary.problemsCount);
+    if (problemsCount !== null) {
+      summary.problemsCount = problemsCount;
     }
-    if (Number.isFinite(Number(rawSummary.lossCount))) {
-      summary.lossCount = Number(rawSummary.lossCount);
+    const lossCount = toFiniteSummaryNumber(rawSummary.lossCount);
+    if (lossCount !== null) {
+      summary.lossCount = lossCount;
     }
   }
 
+  if (!Number.isFinite(summary.problemCount) || summary.problemCount < 0) {
+    summary.problemCount = summary.problemsCount;
+  }
+  if (!Number.isFinite(summary.problemsCount) || summary.problemsCount < 0) {
+    summary.problemsCount = summary.problemCount;
+  }
+  if (summary.problemCount === 0 && summary.problemsCount > 0) {
+    summary.problemCount = summary.problemsCount;
+  }
+  if (summary.problemsCount === 0 && summary.problemCount > 0) {
+    summary.problemsCount = summary.problemCount;
+  }
+
   return summary;
+}
+
+function isProblemLikeEvent(event = {}) {
+  const eventType = String(event.type || event.title || '')
+    .toLowerCase()
+    .replace(/[^a-zа-яё]/g, '');
+  const extraFields = event && event.extraFields && typeof event.extraFields === 'object' && !Array.isArray(event.extraFields)
+    ? event.extraFields
+    : {};
+
+  return Boolean(
+    event.problem ||
+    event.problemType ||
+    event.risk ||
+    event.riskLevel ||
+    extraFields.problem ||
+    extraFields.problemType ||
+    extraFields.risk ||
+    extraFields.riskLevel ||
+    extraFields.problemDescription ||
+    extraFields.diseaseName ||
+    extraFields.pestName ||
+    extraFields.quarantineReason ||
+    event.problemDescription ||
+    event.diseaseName ||
+    event.pestName ||
+    event.quarantineReason ||
+    ['problem', 'contamination', 'quarantine', 'quarantinereleased', 'greenhousedisease'].includes(eventType)
+  );
+}
+
+function isProblemLikeCard(card = {}) {
+  const extraFields = card && card.extraFields && typeof card.extraFields === 'object' && !Array.isArray(card.extraFields)
+    ? card.extraFields
+    : {};
+
+  return Boolean(
+    card.problem ||
+    card.problemType ||
+    card.risk ||
+    card.riskLevel ||
+    extraFields.problem ||
+    extraFields.problemType ||
+    extraFields.risk ||
+    extraFields.riskLevel ||
+    extraFields.problemDescription ||
+    extraFields.diseaseName ||
+    extraFields.pestName ||
+    extraFields.quarantineReason ||
+    String(card.batchStatus || card.status || '').toLowerCase().includes('problem') ||
+    String(card.batchStatus || card.status || '').toLowerCase().includes('risk') ||
+    String(card.batchStatus || card.status || '').toLowerCase().includes('quarantine') ||
+    String(card.sterilityStatus || '').toLowerCase().includes('contamin') ||
+    card.events.some((event) => isProblemLikeEvent(event))
+  );
 }
 
 module.exports = {
@@ -1480,8 +2293,10 @@ module.exports = {
   processUploadedReport,
   safeReportId,
   reportFilePath,
+  reportPhotoPath,
   formatDateValue,
   formatDateOnly,
   getStorageUrl
 };
+
 

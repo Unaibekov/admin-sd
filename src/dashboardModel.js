@@ -206,7 +206,13 @@ function normalizeDashboardEvent(rawEvent = {}, rawCard = {}, report = {}, batch
   const childCode = firstValue(rawEvent.childCode, rawEvent.extraFields && rawEvent.extraFields.childCode);
   const parentCardId = firstValue(rawEvent.parentCardId, rawEvent.extraFields && rawEvent.extraFields.parentCardId);
   const parentCode = firstValue(rawEvent.parentCode, rawEvent.extraFields && rawEvent.extraFields.parentCode);
+  const sourceEventId = firstValue(rawEvent.sourceEventId, rawEvent.extraFields && rawEvent.extraFields.sourceEventId);
+  const sourceProblemEventId = firstValue(rawEvent.sourceProblemEventId, rawEvent.extraFields && rawEvent.extraFields.sourceProblemEventId);
   const generation = firstValue(rawEvent.generation, rawEvent.extraFields && rawEvent.extraFields.generation);
+  const healthStatus = firstValue(rawEvent.healthStatus, rawEvent.extraFields && rawEvent.extraFields.healthStatus);
+  const isolationStatus = firstValue(rawEvent.isolationStatus, rawEvent.extraFields && rawEvent.extraFields.isolationStatus);
+  const activeProblemQuantity = getPositiveQuantity(firstValue(rawEvent.activeProblemQuantity, rawEvent.extraFields && rawEvent.extraFields.activeProblemQuantity));
+  const unisolatedProblemQuantity = getPositiveQuantity(firstValue(rawEvent.unisolatedProblemQuantity, rawEvent.extraFields && rawEvent.extraFields.unisolatedProblemQuantity));
   const diseaseName = firstValue(rawEvent.diseaseName, rawEvent.extraFields && rawEvent.extraFields.diseaseName);
   const pestName = firstValue(rawEvent.pestName, rawEvent.extraFields && rawEvent.extraFields.pestName);
   const diseaseSeverity = firstValue(rawEvent.diseaseSeverity, rawEvent.extraFields && rawEvent.extraFields.diseaseSeverity);
@@ -261,7 +267,13 @@ function normalizeDashboardEvent(rawEvent = {}, rawCard = {}, report = {}, batch
     childCode,
     parentCardId,
     parentCode,
+    sourceEventId,
+    sourceProblemEventId,
     generation,
+    healthStatus,
+    isolationStatus,
+    activeProblemQuantity,
+    unisolatedProblemQuantity,
     diseaseName,
     pestName,
     diseaseSeverity,
@@ -303,11 +315,16 @@ function getAttentionBatches(batches = [], events = []) {
   return batches.map((batch) => {
     const problemEvents = (byBatch.get(batch.batchKey) || []).sort(byNewest);
     const latestProblem = problemEvents[0] || null;
-    const risk = normalizeRisk(latestProblem && latestProblem.risk || batch.riskLevel || batch.risk || '');
+    const currentRisk = normalizeRisk(batch.riskLevel || batch.risk || '');
+    const risk = normalizeRisk(latestProblem && latestProblem.risk || currentRisk);
     const status = normalizeStatus(batch.status);
     const contaminated = String(batch.sterilityStatus || '').toLowerCase().includes('contamin');
-    const hasHighRisk = risk === 'critical' || risk === 'high';
-    const needsAttention = status === 'problem' || status === 'quarantine' || contaminated || hasHighRisk;
+    const hasHighRisk = currentRisk === 'critical' || currentRisk === 'high';
+    const releasedIsolation = isReleasedIsolationBatch(batch);
+    const needsAttention = status === 'problem'
+      || ((status === 'quarantine') && !releasedIsolation)
+      || contaminated
+      || hasHighRisk;
     if (!needsAttention) return null;
 
     const reason = status === 'quarantine'
@@ -521,7 +538,7 @@ function getProductionMetrics(events = []) {
 
 function getCurrentMetrics(batches, attentionBatches) {
   const activeBatches = batches.filter((batch) => isWorkingStatus(batch.status)).length;
-  const quarantineBatches = batches.filter((batch) => normalizeStatus(batch.status) === 'quarantine').length;
+  const quarantineBatches = batches.filter((batch) => normalizeStatus(batch.status) === 'quarantine' && !isReleasedIsolationBatch(batch)).length;
   return { activeBatches, quarantineBatches, attentionBatches: attentionBatches.length, totalBatches: batches.length };
 }
 
@@ -712,7 +729,7 @@ function isRecentReportProblemEvent(event = {}) {
     extraFields.diseaseName ||
     extraFields.pestName ||
     extraFields.quarantineReason ||
-    ['problem', 'contamination', 'quarantine', 'quarantinereleased', 'greenhousedisease'].includes(eventType)
+    ['problem', 'contamination', 'quarantine', 'quarantinereleased', 'greenhousedisease', 'problemisolation', 'isolatedfromparent', 'problemrecovery'].includes(eventType)
   );
 }
 
@@ -771,6 +788,12 @@ function normalizeRisk(value) {
   return '';
 }
 
+function isReleasedIsolationBatch(batch = {}) {
+  return normalizeText(batch.originType) === 'problemisolation'
+    && normalizeText(batch.isolationStatus) === 'released'
+    && getPositiveQuantity(batch.activeProblemQuantity) === 0;
+}
+
 function formatRisk(value) {
   return ({ critical: 'Критический', high: 'Высокий', medium: 'Средний', low: 'Низкий' })[value] || 'Не указан';
 }
@@ -780,7 +803,7 @@ function formatStatus(value) {
 }
 
 function formatEventTitle(type) {
-  return ({ problem: 'Проблема', contamination: 'Контаминация', quarantine: 'Карантин', sale: 'Продажа', introloss: 'Потери', loss: 'Потери', death: 'Гибель', discard: 'Списание', propagation: 'Размножение', clonedfromparent: 'Создание клона', planting: 'Высадка', stagechange: 'Изменение стадии', movement: 'Перемещение', greenhousedisease: 'Болезнь', greenhousecare: 'Уход', adaptationcare: 'Уход', hardeningcare: 'Уход', plantingcare: 'Уход' })[type] || 'Событие';
+  return ({ problem: 'Проблема', contamination: 'Контаминация', quarantine: 'Карантин', sale: 'Продажа', introloss: 'Потери', loss: 'Потери', death: 'Гибель', discard: 'Списание', propagation: 'Размножение', clonedfromparent: 'Создание клона', problemisolation: 'Изоляция проблемных растений', isolatedfromparent: 'Создание изолированной партии', problemrecovery: 'Проблема решена', planting: 'Высадка', stagechange: 'Изменение стадии', movement: 'Перемещение', greenhousedisease: 'Болезнь', greenhousecare: 'Уход', adaptationcare: 'Уход', hardeningcare: 'Уход', plantingcare: 'Уход' })[type] || 'Событие';
 }
 
 function buildEmployeeDirectory(reports) {
