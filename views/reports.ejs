@@ -5,26 +5,185 @@
   <main class="app-main app-main-report-dashboard">
     <section class="report-dashboard-page">
       <div class="report-dashboard-shell">
+        <% const employeeOptions = Array.isArray(reportsPage && reportsPage.employees) ? reportsPage.employees : []; %>
+        <% const employeeReports = Array.isArray(reportsPage && reportsPage.employeeReports) ? reportsPage.employeeReports : []; %>
+        <% const selectedEmployeeKey = reportsPage && reportsPage.selectedEmployeeKey ? reportsPage.selectedEmployeeKey : ''; %>
+        <% const selectedReportId = reportsPage && reportsPage.selectedReportId ? reportsPage.selectedReportId : ''; %>
+        <% const reportContentModel = typeof reportsContent !== 'undefined' ? reportsContent : null; %>
+
         <% if (!reportsPage.hasEmployees) { %>
-          <header class="report-dashboard-head"><div><h1>Отчет</h1><p>Загрузите импортированный отчет, чтобы посмотреть сводную информацию.</p></div></header>
-        <% } else { %>
-          <header class="report-dashboard-head reports-selection-head">
-            <div><h1>Отчет</h1><p>Выберите сотрудника, чтобы открыть сводную информацию по его последнему импортированному отчету.</p></div>
-          </header>
-          <section class="dashboard-card reports-employee-picker" aria-label="Выбор сотрудника">
-            <div class="dashboard-card-head"><div><h2>Сотрудник</h2><p>Сотрудники с импортированными отчетами.</p></div></div>
-            <div class="reports-employee-list">
-              <% reportsPage.employees.forEach((employee) => { %>
-                <a class="dashboard-report-row <%= reportsPage.selectedEmployeeKey === employee.key ? 'active' : '' %>" href="/reports?employee=<%= encodeURIComponent(employee.key) %>">
-                  <div class="dashboard-report-main"><strong><%= employee.label %></strong><span>Последний импорт: <%= employee.latestReportDate || 'не указан' %></span></div>
-                  <div class="dashboard-report-pills"><span><%= employee.reports.length %> отчетов</span><span><%= employee.cardsCount %> карточек</span><span><%= employee.eventsCount %> событий</span></div>
-                </a>
-              <% }) %>
+          <header class="report-dashboard-head">
+            <div>
+              <h1>Отчеты</h1>
+              <p>Загрузите импортированный отчет, чтобы посмотреть сводную информацию.</p>
             </div>
+          </header>
+        <% } else { %>
+          <header class="report-dashboard-head reports-page-head">
+            <div>
+              <h1>Отчеты</h1>
+              <p>Просмотр отчетов сотрудников.</p>
+            </div>
+          </header>
+
+          <section class="dashboard-card reports-filters-card" aria-label="Фильтры отчетов" data-reports-filters>
+            <form class="reports-filters-form" method="get" action="/reports">
+              <label class="reports-filter-field">
+                <span>Сотрудник</span>
+                <select name="employee" data-reports-employee>
+                  <% employeeOptions.forEach((employee) => { %>
+                    <option value="<%= employee.key %>" <%= selectedEmployeeKey === employee.key ? 'selected' : '' %>>
+                      <%= employee.label %>
+                    </option>
+                  <% }) %>
+                </select>
+              </label>
+
+              <label class="reports-filter-field">
+                <span>Отчет</span>
+                <select name="reportId" data-reports-report <%= employeeReports.length <= 1 ? 'disabled' : '' %>>
+                  <% employeeReports.forEach((report, index) => { %>
+                    <% const reportLabel = index === 0 ? `${report.displayCreatedAt} — последний` : report.displayCreatedAt; %>
+                    <option value="<%= report.reportId %>" <%= selectedReportId === report.reportId ? 'selected' : '' %>>
+                      <%= reportLabel %>
+                    </option>
+                  <% }) %>
+                </select>
+                <% if (employeeReports.length <= 1 && selectedReportId) { %>
+                  <input type="hidden" name="reportId" value="<%= selectedReportId %>">
+                <% } %>
+              </label>
+
+              <button type="submit" class="button reports-filter-submit">Показать</button>
+            </form>
           </section>
 
-          <% if (selectedReport && reportDashboard) { %>
-            <%- include('partials/report-dashboard-content', { report: selectedReport, reportDashboard }) %>
+          <% if (reportContentModel) { %>
+            <section class="dashboard-card report-header-card" aria-label="Выбранный отчет">
+              <div class="report-header-copy">
+                <strong><%= reportContentModel.header.employeeName %></strong>
+                <span><%= reportContentModel.header.employeeRole %></span>
+                <span>Отчет от <%= reportContentModel.header.reportDateTime %></span>
+              </div>
+              <% if (reportContentModel.header.isLatestReport) { %>
+                <span class="report-header-badge">Последний отчет</span>
+              <% } %>
+            </section>
+
+            <section class="report-kpi-grid" aria-label="Основные показатели">
+              <% reportContentModel.kpis.forEach((metric) => { %>
+                <article class="dashboard-stat dashboard-stat-<%= metric.key === 'problems' && metric.value > 0 ? 'warning' : 'dark' %>">
+                  <span class="dashboard-stat-label"><%= metric.label %></span>
+                  <strong><%= metric.value %></strong>
+                </article>
+              <% }) %>
+            </section>
+
+            <section class="report-sections-grid">
+              <article class="dashboard-card report-section-card">
+                <div class="dashboard-card-head">
+                  <div>
+                    <h2>Требуют внимания</h2>
+                    <p>Только активные состояния выбранного отчета.</p>
+                  </div>
+                  <a class="dashboard-card-link" href="/journal?reportId=<%= encodeURIComponent(selectedReport.reportId) %>&category=problems">Показать все</a>
+                </div>
+
+                <% if (reportContentModel.issues.length) { %>
+                  <div class="report-attention-list">
+                    <% reportContentModel.issues.forEach((issue) => { %>
+                      <% const issueRisk = issue.risk ? ` · ${issue.risk}` : ''; %>
+                      <% const issueLocation = issue.location ? ` · ${issue.location}` : ''; %>
+                      <article class="report-attention-item">
+                        <div class="report-attention-copy">
+                          <strong><%= issue.title %></strong>
+                          <span><%= issue.code %></span>
+                          <span><%= issue.reason %><%= issueRisk %></span>
+                          <span><%= issue.quantity %> растений</span>
+                          <span><%= issue.stage %><%= issueLocation %></span>
+                        </div>
+                        <% if (issue.href) { %>
+                          <a class="dashboard-card-link" href="<%= issue.href %>">Открыть партию</a>
+                        <% } %>
+                      </article>
+                    <% }) %>
+                  </div>
+                <% } else { %>
+                  <div class="dashboard-inline-empty">Активных проблем нет.</div>
+                <% } %>
+              </article>
+
+              <article class="dashboard-card report-section-card">
+                <div class="dashboard-card-head">
+                  <div>
+                    <h2>Работа по стадиям</h2>
+                    <p>Текущее распределение партий и растений по стадиям.</p>
+                  </div>
+                  <a class="dashboard-card-link" href="/stages?reportId=<%= encodeURIComponent(selectedReport.reportId) %>">Все партии</a>
+                </div>
+
+                <div class="report-stage-summary">
+                  <% reportContentModel.stageSummary.forEach((item) => { %>
+                    <article class="report-stage-row">
+                      <strong><%= item.stage %></strong>
+                      <span><%= item.batchesCount %> партий</span>
+                      <span><%= item.plantsCount %> растений</span>
+                    </article>
+                  <% }) %>
+                </div>
+              </article>
+
+              <% if (reportContentModel.linkedBatches.length) { %>
+                <article class="dashboard-card report-section-card">
+                  <div class="dashboard-card-head">
+                    <div>
+                      <h2>Связанные партии</h2>
+                      <p>Родительские и дочерние партии выбранного отчета.</p>
+                    </div>
+                  </div>
+
+                  <div class="report-related-batches">
+                    <% reportContentModel.linkedBatches.forEach((group) => { %>
+                      <section class="report-related-group">
+                        <div class="report-related-parent">
+                          <% if (group.parent.href) { %>
+                            <a href="<%= group.parent.href %>"><strong><%= group.parent.title %></strong></a>
+                          <% } else { %>
+                            <strong><%= group.parent.title %></strong>
+                          <% } %>
+                          <span><%= group.parent.code %></span>
+                        </div>
+
+                        <div class="report-related-children">
+                          <% group.children.forEach((child) => { %>
+                            <a class="report-related-child" href="<%= child.href %>">
+                              <strong><%= child.title %></strong>
+                              <span><%= child.code %> · <%= child.originLabel %> · <%= child.quantity %> шт.</span>
+                            </a>
+                          <% }) %>
+                        </div>
+                      </section>
+                    <% }) %>
+                  </div>
+                </article>
+              <% } %>
+
+              <article class="dashboard-card report-section-card">
+                <div class="dashboard-card-head">
+                  <div>
+                    <h2>Последние действия</h2>
+                    <p>Последние события только из выбранного отчета.</p>
+                  </div>
+                  <a class="dashboard-card-link" href="/journal?reportId=<%= encodeURIComponent(selectedReport.reportId) %>">Показать все</a>
+                </div>
+
+                <%- include('partials/dashboard-event-feed', {
+                  events: reportContentModel.recentEvents,
+                  emptyText: 'В этом отчете пока нет событий.',
+                  eventHref: function eventHref(event) { return event.href || ''; }
+                }) %>
+              </article>
+            </section>
           <% } else { %>
             <div class="dashboard-inline-empty reports-selection-empty">Выберите сотрудника, чтобы открыть его отчет.</div>
           <% } %>

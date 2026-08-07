@@ -6,7 +6,7 @@ const os = require('os');
 const path = require('path');
 const { buildDashboard, buildFlashMessage } = require('./dashboardModel');
 const { buildReportDashboardModel } = require('./reportDashboardModel');
-const { buildReportsPageModel, resolveReportEmployeeKey } = require('./reportsPageModel');
+const { buildReportsPageModel, buildReportsContentModel, resolveReportEmployeeKey } = require('./reportsPageModel');
 const { buildJournalPageModel } = require('./journalPageModel');
 const { buildStagesPageModel } = require('./stagesPageModel');
 const {
@@ -253,10 +253,28 @@ function createApp() {
       if (selectedEmployeeForReport) {
         reportsPage.selectedEmployee = selectedEmployeeForReport;
         reportsPage.selectedEmployeeKey = selectedEmployeeForReport.key;
+        reportsPage.employeeReports = Array.isArray(selectedEmployeeForReport.reports)
+          ? selectedEmployeeForReport.reports
+          : [];
+        reportsPage.selectedReportSummary = selectedReport
+          ? reportsPage.employeeReports.find((report) => report.reportId === selectedReport.reportId) || null
+          : null;
+        reportsPage.selectedReportId = reportsPage.selectedReportSummary
+          ? reportsPage.selectedReportSummary.reportId
+          : '';
+        reportsPage.isLatestReport = Boolean(
+          reportsPage.selectedReportSummary
+          && reportsPage.employeeReports[0]
+          && reportsPage.selectedReportSummary.reportId === reportsPage.employeeReports[0].reportId
+        );
+        reportsPage.hasSelectedReport = Boolean(reportsPage.selectedReportSummary);
         reportsPage.hasSelectedEmployee = true;
       }
 
       const reportDashboard = selectedReport ? buildReportDashboardModel(selectedReport) : null;
+      const reportsContent = selectedReport && reportDashboard
+        ? buildReportsContentModel(reportsPage, selectedReport, reportDashboard)
+        : null;
 
       res.render('reports', {
         pageTitle: '\u041e\u0442\u0447\u0435\u0442\u044b',
@@ -264,7 +282,8 @@ function createApp() {
         showDashboardLink: reports.length > 0,
         reportsPage,
         selectedReport,
-        reportDashboard
+        reportDashboard,
+        reportsContent
       });
     } catch (error) {
       next(error);

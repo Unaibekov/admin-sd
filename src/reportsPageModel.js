@@ -24,6 +24,7 @@ function buildReportsPageModel(reports = [], query = {}) {
     if (createdAtMs >= group.latestReportCreatedAtMs) {
       group.latestReportCreatedAtMs = createdAtMs;
       group.latestReportDate = report && report.displayCreatedAt ? report.displayCreatedAt : '';
+      group.role = resolveReportEmployeeRole(report);
     }
     group.reports.push({
       reportId: report && report.reportId ? report.reportId : '',
@@ -65,12 +66,30 @@ function buildReportsPageModel(reports = [], query = {}) {
       || null
     : employees[0] || null;
 
+  const employeeReports = selectedEmployee && Array.isArray(selectedEmployee.reports)
+    ? selectedEmployee.reports
+    : [];
+  const requestedReportId = String(query && query.reportId || '').trim();
+  const selectedReportSummary = requestedReportId
+    ? employeeReports.find((report) => report.reportId === requestedReportId) || employeeReports[0] || null
+    : employeeReports[0] || null;
+  const latestEmployeeReport = employeeReports[0] || null;
+
   return {
     employees,
     selectedEmployeeKey: selectedEmployee ? selectedEmployee.key : '',
     selectedEmployee,
+    employeeReports,
+    selectedReportId: selectedReportSummary ? selectedReportSummary.reportId : '',
+    selectedReportSummary,
+    isLatestReport: Boolean(
+      selectedReportSummary
+      && latestEmployeeReport
+      && selectedReportSummary.reportId === latestEmployeeReport.reportId
+    ),
     hasEmployees: employees.length > 0,
-    hasSelectedEmployee: Boolean(selectedEmployee)
+    hasSelectedEmployee: Boolean(selectedEmployee),
+    hasSelectedReport: Boolean(selectedReportSummary)
   };
 }
 
@@ -172,6 +191,7 @@ function ensureEmployeeGroup(groups, employeeKey, employeeLabel) {
     groups.set(employeeKey, {
       key: employeeKey,
       label: employeeLabel,
+      role: 'Роль не указана',
       cardsCount: 0,
       eventsCount: 0,
       photosCount: 0,
@@ -236,6 +256,11 @@ function resolveReportEmployeeIdentity(report) {
   ]));
 }
 
+function resolveReportEmployeeRole(report) {
+  const user = report && report.user ? report.user : {};
+  return String(user.role || '').trim() || 'Роль не указана';
+}
+
 function buildReportEmployeeKeyResolver(reports = []) {
   const identitiesByName = new Map();
   const reportList = Array.isArray(reports) ? reports : [];
@@ -291,6 +316,159 @@ function resolveReportCounts(report) {
     eventsCount: readCount(summary.eventsCount, derivedEventsCount),
     photosCount: readCount(summary.photosCount, derivedPhotosCount)
   };
+}
+
+function buildReportsContentModel(reportsPage, selectedReport, reportDashboard) {
+  if (!reportsPage || !reportsPage.selectedEmployee || !selectedReport || !reportDashboard) {
+    return null;
+  }
+
+  const selectedEmployee = reportsPage.selectedEmployee;
+  const employeeReports = Array.isArray(reportsPage.employeeReports) ? reportsPage.employeeReports : [];
+  const batches = Array.isArray(reportDashboard.batches) ? reportDashboard.batches : [];
+  const attentionEvents = Array.isArray(reportDashboard.attentionEvents) ? reportDashboard.attentionEvents : [];
+  const recentEvents = Array.isArray(reportDashboard.recentEvents) ? reportDashboard.recentEvents.slice(0, 6) : [];
+  const plantsCount = batches.reduce((total, batch) => total + readCount(batch && batch.currentQuantity, 0), 0);
+
+  return {
+    filters: {
+      employees: reportsPage.employees || [],
+      selectedEmployeeKey: reportsPage.selectedEmployeeKey || '',
+      reports: employeeReports.map((report, index) => ({
+        ...report,
+        label: index === 0 ? `${report.displayCreatedAt} — последний` : report.displayCreatedAt
+      })),
+      selectedReportId: reportsPage.selectedReportId || ''
+    },
+    header: {
+      employeeName: reportDashboard.employee && reportDashboard.employee.name ? reportDashboard.employee.name : selectedEmployee.label,
+      employeeRole: reportDashboard.employee && reportDashboard.employee.role ? reportDashboard.employee.role : (selectedEmployee.role || 'Роль не указана'),
+      reportDateTime: [reportDashboard.importDate, reportDashboard.importTime].filter(Boolean).join(', '),
+      isLatestReport: Boolean(reportsPage.isLatestReport)
+    },
+    kpis: [
+      { key: 'batches', label: 'Партии', value: reportDashboard.summary.cardsCount },
+      { key: 'plants', label: 'Растения', value: plantsCount },
+      { key: 'problems', label: 'Активные проблемы', value: attentionEvents.length },
+      { key: 'events', label: 'События', value: reportDashboard.summary.eventsCount }
+    ],
+    issues: buildAttentionItems(attentionEvents, batches, selectedReport.reportId),
+    stageSummary: buildStageSummary(batches),
+    linkedBatches: buildLinkedBatchGroups(batches, selectedReport.reportId),
+    recentEvents: recentEvents.map((event) => ({
+      ...event,
+      href: event && event.batchKey
+        ? `/stages?batchId=${encodeURIComponent(event.batchKey)}&reportId=${encodeURIComponent(selectedReport.reportId)}&tab=journal${event.eventId ? `&eventId=${encodeURIComponent(event.eventId)}` : ''}#journal`
+        : ''
+    }))
+  };
+}
+
+function buildAttentionItems(attentionEvents = [], batches = [], reportId = '') {
+  const batchByKey = new Map((Array.isArray(batches) ? batches : []).map((batch) => [batch.batchKey, batch]));
+
+  return (Array.isArray(attentionEvents) ? attentionEvents : []).slice(0, 6).map((event) => {
+    const batch = batchByKey.get(event.batchKey) || null;
+    return {
+      title: event.culture || batch && batch.title || 'Партия без названия',
+      code: event.code || batch && batch.code || 'Без кода',
+      reason: event.problem || event.title || batch && (batch.problemType || batch.statusLabel) || 'Требует внимания',
+      risk: event.risk || batch && batch.riskLevel || '',
+      quantity: readCount(batch && batch.currentQuantity, readCount(event.currentQuantity, readCount(event.totalQuantity, 0))),
+      stage: batch && batch.stage || event.stage || 'Без стадии',
+      location: batch && batch.location || '',
+      href: event && event.batchKey
+        ? `/stages?batchId=${encodeURIComponent(event.batchKey)}&reportId=${encodeURIComponent(reportId)}`
+        : ''
+    };
+  });
+}
+
+function buildStageSummary(batches = []) {
+  const stages = [
+    'Введение в культуру',
+    'Клонирование',
+    'Адаптация',
+    'Теплица',
+    'Закалка',
+    'Высадка'
+  ];
+
+  return stages.map((stage) => {
+    const stageBatches = (Array.isArray(batches) ? batches : []).filter((batch) => String(batch && batch.stage || '').trim() === stage);
+    return {
+      stage,
+      batchesCount: stageBatches.length,
+      plantsCount: stageBatches.reduce((total, batch) => total + readCount(batch && batch.currentQuantity, 0), 0)
+    };
+  });
+}
+
+function buildLinkedBatchGroups(batches = [], reportId = '') {
+  const items = Array.isArray(batches) ? batches : [];
+  const byCardId = new Map(items.map((batch) => [normalizeLookupText(batch && batch.cardId), batch]));
+  const byCode = new Map(items.map((batch) => [normalizeLookupText(batch && batch.code), batch]));
+  const groups = [];
+
+  for (const parent of items) {
+    const children = items.filter((candidate) => candidate
+      && candidate.batchKey !== parent.batchKey
+      && (
+        normalizeLookupText(candidate.parentCardId) === normalizeLookupText(parent.cardId)
+        || (candidate.parentCode && normalizeLookupText(candidate.parentCode) === normalizeLookupText(parent.code))
+      ));
+    if (!children.length) continue;
+    groups.push({
+      parent: {
+        title: parent.title || parent.code || 'Партия без названия',
+        code: parent.code || 'Без кода',
+        href: `/stages?batchId=${encodeURIComponent(parent.batchKey)}&reportId=${encodeURIComponent(reportId)}`
+      },
+      children: children.map((child) => ({
+        title: child.title || child.code || 'Партия без названия',
+        code: child.code || 'Без кода',
+        originLabel: formatOriginLabel(child.originType),
+        quantity: readCount(child.currentQuantity, 0),
+        href: `/stages?batchId=${encodeURIComponent(child.batchKey)}&reportId=${encodeURIComponent(reportId)}`
+      }))
+    });
+  }
+
+  for (const child of items) {
+    if (!child || !child.originType || !['cloned', 'problemIsolation'].includes(String(child.originType).trim())) continue;
+    const hasParentInGroup = groups.some((group) => group.children.some((item) => item.code === child.code));
+    if (hasParentInGroup) continue;
+    const parent = byCardId.get(normalizeLookupText(child.parentCardId)) || byCode.get(normalizeLookupText(child.parentCode)) || null;
+    groups.push({
+      parent: parent ? {
+        title: parent.title || parent.code || 'Партия без названия',
+        code: parent.code || 'Без кода',
+        href: `/stages?batchId=${encodeURIComponent(parent.batchKey)}&reportId=${encodeURIComponent(reportId)}`
+      } : {
+        title: child.parentCode || 'Родительская партия',
+        code: child.parentCode || 'Без кода',
+        href: ''
+      },
+      children: [{
+        title: child.title || child.code || 'Партия без названия',
+        code: child.code || 'Без кода',
+        originLabel: formatOriginLabel(child.originType),
+        quantity: readCount(child.currentQuantity, 0),
+        href: `/stages?batchId=${encodeURIComponent(child.batchKey)}&reportId=${encodeURIComponent(reportId)}`
+      }]
+    });
+  }
+
+  return groups;
+}
+
+function formatOriginLabel(originType) {
+  const value = String(originType || '').trim().toLowerCase();
+  return value === 'problemisolation'
+    ? 'Изолированная партия'
+    : value === 'cloned'
+      ? 'Клон'
+      : 'Связанная партия';
 }
 
 function readCount(value, fallback) {
@@ -418,5 +596,6 @@ function toDateMs(value) {
 module.exports = {
   buildReportsPageModel,
   buildSelectedEmployeeDetail,
+  buildReportsContentModel,
   resolveReportEmployeeKey
 };

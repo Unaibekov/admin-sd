@@ -4,16 +4,34 @@
     const batchPanels = Array.from(root.querySelectorAll('.batch-tab-panel'));
     if (!batchTabs || !batchPanels.length || batchTabs.dataset.batchTabsReady === '1') return;
     batchTabs.dataset.batchTabsReady = '1';
+    const getBatchTabId = (tab) => {
+      if (!tab) return '';
+      const explicitTab = tab.dataset.tab || '';
+      if (explicitTab) return explicitTab;
+      try {
+        return new URL(tab.getAttribute('href') || '', window.location.href).hash.slice(1);
+      } catch (error) {
+        return '';
+      }
+    };
     const activateBatchTab = (id) => {
       batchTabs.querySelectorAll('a').forEach((tab) => {
-        tab.classList.toggle('active', tab.getAttribute('href') === `#${id}`);
+        tab.classList.toggle('active', getBatchTabId(tab) === id);
       });
       batchPanels.forEach((panel) => panel.classList.toggle('active', panel.id === id));
     };
     batchTabs.querySelectorAll('a').forEach((tab) => {
       tab.addEventListener('click', (event) => {
         event.preventDefault();
-        activateBatchTab(tab.getAttribute('href').slice(1));
+        const tabId = getBatchTabId(tab);
+        if (!tabId) {
+          window.location.href = tab.href;
+          return;
+        }
+        if (window.history && window.history.replaceState) {
+          window.history.replaceState(window.history.state, '', tab.href);
+        }
+        activateBatchTab(tabId);
       });
     });
     const batchParams = new URLSearchParams(window.location.search);
@@ -608,6 +626,26 @@
     });
 
     syncCustomRange();
+  }
+
+  const reportsFiltersRoot = document.querySelector('[data-reports-filters]');
+  if (reportsFiltersRoot) {
+    const form = reportsFiltersRoot.querySelector('.reports-filters-form');
+    const employeeSelect = reportsFiltersRoot.querySelector('[data-reports-employee]');
+    const reportSelect = reportsFiltersRoot.querySelector('[data-reports-report]');
+    if (form && employeeSelect && reportSelect) {
+      employeeSelect.addEventListener('change', () => {
+        const url = new URL(form.action || window.location.href, window.location.href);
+        url.searchParams.set('employee', employeeSelect.value);
+        url.searchParams.delete('reportId');
+        window.location.href = `${url.pathname}?${url.searchParams.toString()}`;
+      });
+
+      reportSelect.addEventListener('change', () => {
+        if (!reportSelect.value) return;
+        form.requestSubmit();
+      });
+    }
   }
 
   const lightbox = document.querySelector('.lightbox');
