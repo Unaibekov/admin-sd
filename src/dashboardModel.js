@@ -1,4 +1,6 @@
 const { buildBatchCatalog } = require('./stagesPageModel');
+const { formatCountLabel } = require('./formatCountLabel');
+const { resolveReportEmployeeKey } = require('./reportsPageModel');
 
 const PERIOD_OPTIONS = [
   ['today', 'Сегодня'],
@@ -6,7 +8,9 @@ const PERIOD_OPTIONS = [
   ['30d', '30 дней'],
   ['all', 'Все время']
 ];
+const PERIOD_KEYS = new Map(PERIOD_OPTIONS.map(([value]) => [normalizeText(value), value]));
 const STAGE_ORDER = ['Введение в культуру', 'Клонирование', 'Адаптация', 'Теплица', 'Закалка', 'Высадка'];
+const STAGE_ORDER_INDEX = new Map(STAGE_ORDER.map((stage, index) => [normalizeText(stage), index]));
 const LOSS_TYPES = new Set(['loss', 'introloss', 'death', 'discard', 'writeoff']);
 const AUTOMATIC_TYPES = new Set(['batchcreated', 'qrgenerated', 'stagesettingsupdated']);
 const REPORT_USER_ALIASES = ['local-user'];
@@ -28,23 +32,31 @@ function buildFlashMessage(query) {
 
 function buildDashboard(reports = [], selectedReport = null, reportModels = [], query = {}) {
   const sourceReports = reportModels.length ? reportModels : selectedReport ? [selectedReport] : [];
+  const selectedReportId = String(query.reportId || '').trim();
   const period = resolvePeriod(query.period);
   const batches = getLatestBatchSnapshots(sourceReports);
-  const events = buildUniqueEventIndex(sourceReports, batches);
-  const periodEvents = events.filter((event) => isInPeriod(event.timestamp, period));
+  const allEvents = disambiguateDashboardEventAuthors(buildUniqueEventIndex(sourceReports, batches));
+  const periodEvents = allEvents.filter((event) => isInPeriod(event.timestamp, period));
   const periodReports = sourceReports.filter((report) => isInPeriod(toTimestamp(report.createdAt), period));
-  const attentionBatches = getAttentionBatches(batches, events);
+  const attentionBatches = getAttentionBatches(batches, allEvents);
+  const visibleAttentionBatches = attentionBatches.slice(0, 5);
   const current = getCurrentMetrics(batches, attentionBatches);
-  const employeeActivity = getEmployeeActivity(sourceReports, periodEvents, periodReports);
+  const employeeActivity = disambiguateDashboardEmployeeActivity(getEmployeeActivityStable(sourceReports, periodEvents, periodReports));
   const recentPhotos = getRecentPhotos(periodEvents);
   const productionMetrics = getProductionMetrics(periodEvents);
   const recentEvents = periodEvents.filter(isUserInitiatedEvent).sort(byNewest);
+  const recentReports = disambiguateDashboardRecentReports(getLatestReportsByEmployee(periodReports, reports));
   const journalBaseQuery = buildJournalQuery(period, query);
+  const selectedReportSummaryBase = selectedReport ? buildRecentReport(selectedReport, reports) : null;
+  const selectedReportSummary = selectedReportSummaryBase
+    ? recentReports.find((report) => report.reportId === selectedReportSummaryBase.reportId && report.employeeKey === selectedReportSummaryBase.employeeKey)
+      || selectedReportSummaryBase
+    : null;
 
   const dashboard = {
     hasReports: reports.length > 0,
-    hasCards: batches.length > 0,
-    reportsCount: reports.length,
+    selectedReportId,
+    selectedReportSummary,
     period,
     periodOptions: PERIOD_OPTIONS.map(([value, label]) => ({ value, label })),
     topMetrics: [
@@ -55,21 +67,17 @@ function buildDashboard(reports = [], selectedReport = null, reportModels = [], 
       { key: 'employees', label: 'Сотрудники', note: 'Работали за период', value: employeeActivity.length, tone: 'success' }
     ],
     recentEvents,
-    recentEventsEmpty: periodEvents.length === 0,
     chartTabs: {
       stages: buildDistributionChart(batches, 'stages'),
       cultures: buildDistributionChart(batches, 'cultures')
     },
-    attentionBatches: attentionBatches.slice(0, 5),
+    attentionBatches: visibleAttentionBatches,
+    attentionEvents: buildAttentionEvents(visibleAttentionBatches),
     employeeActivity: employeeActivity.slice(0, 5),
-    recentReports: getLatestReportsByEmployee(periodReports),
+    recentReports,
     recentPhotos: recentPhotos.slice(0, 12),
     productionMetrics,
-    current,
-    cardsCount: batches.length,
-    problemsCount: attentionBatches.length,
-    quarantineCount: current.quarantineBatches,
-    lossCount: productionMetrics.losses ? productionMetrics.losses.value : 0
+    current
   };
   dashboard.topMetrics = dashboard.topMetrics.map((metric) => ({
     ...metric,
@@ -80,7 +88,7 @@ function buildDashboard(reports = [], selectedReport = null, reportModels = [], 
 
 function resolveTopMetricHref(metric, baseQuery) {
   if (!metric || !metric.key) return metric && metric.href ? metric.href : '';
-  if (metric.key === 'active') return '/stages';
+  if (metric.key === 'active') return buildStagesHref(baseQuery);
   if (metric.key === 'attention') return buildJournalHref(baseQuery, { category: 'problems', quick: 'important' });
   if (metric.key === 'quarantine') return buildJournalHref(baseQuery, { category: 'problems', quick: 'quarantine' });
   if (metric.key === 'losses') return buildJournalHref(baseQuery, { category: 'losses' });
@@ -89,6 +97,8 @@ function resolveTopMetricHref(metric, baseQuery) {
 
 function buildJournalQuery(period, query = {}) {
   const params = {};
+  const reportId = String(query.reportId || '').trim();
+  if (reportId) params.reportId = reportId;
   if (period && period.key && period.key !== 'all') params.period = period.key;
   if (period && period.key === 'custom') {
     const dateFrom = String(query.dateFrom || '').trim();
@@ -108,6 +118,13 @@ function buildJournalHref(baseQuery = {}, extraQuery = {}) {
   return query ? `/journal?${query}` : '/journal';
 }
 
+function buildStagesHref(baseQuery = {}) {
+  const params = new URLSearchParams();
+  if (baseQuery.reportId) params.set('reportId', String(baseQuery.reportId));
+  const query = params.toString();
+  return query ? `/stages?${query}` : '/stages';
+}
+
 function getLatestBatchSnapshots(reports = []) {
   return buildBatchCatalog(reports).map((batch) => ({
     ...batch,
@@ -123,14 +140,24 @@ function buildUniqueEventIndex(reports = [], batches = []) {
   const events = new Map();
 
   for (const report of reports) {
+    const parsedCards = Array.isArray(report && report.cards) ? report.cards : [];
     const rawCards = Array.isArray(report && report.raw && report.raw.cards) && report.raw.cards.length
       ? report.raw.cards
-      : Array.isArray(report && report.cards) ? report.cards : [];
-    rawCards.forEach((card, cardIndex) => {
+      : parsedCards;
+    Array.from({ length: Math.max(rawCards.length, parsedCards.length) }, (_, cardIndex) => {
+      const rawCard = rawCards[cardIndex] || {};
+      const parsedCard = parsedCards[cardIndex] || {};
+      const card = mergeSnapshotEntity(parsedCard, rawCard);
+      const rawEvents = Array.isArray(rawCard && rawCard.events) ? rawCard.events : [];
+      const parsedEvents = Array.isArray(parsedCard && parsedCard.events) ? parsedCard.events : [];
+      const mergedEvents = Array.from(
+        { length: Math.max(rawEvents.length, parsedEvents.length) },
+        (_, eventIndex) => mergeSnapshotEntity(parsedEvents[eventIndex], rawEvents[eventIndex])
+      );
       const cardId = String(card && (card.cardId || card.code) || `${report.reportId}-${cardIndex + 1}`);
       const batchKey = buildBatchKey(report, cardId);
       const batch = batchByKey.get(batchKey);
-      for (const rawEvent of Array.isArray(card && card.events) ? card.events : []) {
+      for (const rawEvent of mergedEvents) {
         const event = normalizeDashboardEvent(rawEvent, card, report, batch, employeeDirectory);
         const existing = events.get(event.key);
         if (!existing || event.snapshotAt >= existing.snapshotAt) events.set(event.key, event);
@@ -145,16 +172,22 @@ function normalizeDashboardEvent(rawEvent = {}, rawCard = {}, report = {}, batch
   const type = normalizeType(rawEvent.type || rawEvent.eventType || rawEvent.name);
   const date = firstValue(rawEvent.createdAt, rawEvent.timestamp, rawEvent.time, rawEvent.date);
   const rawCreatedById = firstValue(rawEvent.createdBy, rawEvent.author, rawEvent.user, rawEvent.userName);
-  const createdById = isUnknownAuthor(rawCreatedById) ? firstValue(report.user && report.user.userId) : rawCreatedById || firstValue(report.user && report.user.userId);
+  const reportAuthorId = firstValue(report.user && report.user.userId, report.author, report.userName);
+  const createdById = isUnknownAuthor(rawCreatedById) ? reportAuthorId : rawCreatedById || reportAuthorId;
   const createdBy = employeeDirectory.get(normalizeText(createdById)) || createdById || 'Неизвестно';
+  const employeeKey = employeeDirectory.get(`${normalizeText(createdById)}:key`) || normalizeText(createdById || createdBy) || 'unknown';
   const cardId = String(rawCard.cardId || rawCard.code || batch && batch.cardId || '');
   const eventId = String(rawEvent.eventId || '').trim();
   const key = eventId
     ? `id:${eventId}`
     : `fallback:${buildBatchKey(report, cardId)}|${type}|${date}|${normalizeText(createdById)}|${firstValue(rawEvent.count, rawEvent.quantity)}|${firstValue(rawEvent.comment, rawEvent.message)}`;
-  const photoFiles = uniqueStrings([
-    ...toArray(rawEvent.photos), ...toArray(rawEvent.photoFiles), ...toArray(rawEvent.photoPaths),
-    rawEvent.photoUri, ...toArray(rawEvent.photoUris)
+  const photoFiles = collectPhotoAliases([
+    rawEvent.photos,
+    rawEvent.photoFiles,
+    rawEvent.photoPath,
+    rawEvent.photoPaths,
+    rawEvent.photoUri,
+    rawEvent.photoUris
   ]);
   const getPhotoUrl = typeof report.getPhotoUrl === 'function' ? report.getPhotoUrl.bind(report) : () => '';
   const previewPhoto = photoFiles.map((path) => getPhotoUrl(path)).find(Boolean) || '';
@@ -210,7 +243,8 @@ function normalizeDashboardEvent(rawEvent = {}, rawCard = {}, report = {}, batch
     snapshotAt: toTimestamp(firstValue(report.createdAt, rawCard.updatedAt, date)),
     createdBy,
     createdById,
-    role: employeeDirectory.get(`${normalizeText(createdById)}:role`) || report.user && report.user.role || '',
+    employeeKey,
+    role: normalizeRole(employeeDirectory.get(`${normalizeText(createdById)}:role`) || report.user && report.user.role || ''),
     quantity: getQuantity(rawEvent),
     previousQuantity: getPositiveQuantity(rawEvent.previousQuantity),
     currentQuantity: getPositiveQuantity(rawEvent.currentQuantity),
@@ -283,18 +317,24 @@ function getAttentionBatches(batches = [], events = []) {
         : latestProblem && (latestProblem.problem || latestProblem.title)
           ? latestProblem.problem || latestProblem.title
           : status === 'problem' ? 'Требует внимания' : 'Высокий риск';
+    const resolvedReason = !latestProblem && !contaminated && status === 'problem' && batch.problemType
+      ? batch.problemType
+      : reason;
+    const resolvedLatestProblemAuthor = latestProblem && latestProblem.createdBy
+      ? latestProblem.createdBy
+      : batch.employeeName || 'Автор не указан';
     const priority = risk === 'critical' ? 0 : status === 'quarantine' ? 1 : risk === 'high' ? 2 : contaminated ? 3 : 4;
     const problemAt = latestProblem ? latestProblem.timestamp : toTimestamp(batch.updatedAt);
 
     return {
       ...batch,
-      reason,
+      reason: resolvedReason,
       risk: risk ? formatRisk(risk) : 'Не указан',
       riskKey: risk,
       latestProblemAt: problemAt,
-      latestProblemTitle: latestProblem && latestProblem.title ? latestProblem.title : reason,
-      latestProblemAuthor: latestProblem && latestProblem.createdBy ? latestProblem.createdBy : 'Автор не указан',
-      latestProblemEvent: latestProblem ? { ...latestProblem, title: latestProblem.title || reason } : null,
+      latestProblemTitle: latestProblem && latestProblem.title ? latestProblem.title : resolvedReason,
+      latestProblemAuthor: resolvedLatestProblemAuthor,
+      latestProblemEvent: latestProblem ? { ...latestProblem, title: latestProblem.title || resolvedReason } : null,
       latestProblemLabel: formatDateTime(problemAt),
       daysWithoutUpdate: problemAt ? Math.max(0, Math.floor((Date.now() - problemAt) / 86400000)) : null,
       priority,
@@ -303,25 +343,91 @@ function getAttentionBatches(batches = [], events = []) {
   }).filter(Boolean).sort((left, right) => left.priority - right.priority || right.latestProblemAt - left.latestProblemAt);
 }
 
-function getEmployeeActivity(reports = [], events = [], periodReports = []) {
-  const directory = buildEmployeeDirectory(reports);
+function buildAttentionEvents(batches = []) {
+  return batches.map((batch) => ({
+    ...(batch.latestProblemEvent || {
+      culture: batch.title,
+      code: batch.code,
+      stage: batch.stage,
+      type: 'problem',
+      title: batch.latestProblemTitle || batch.reason,
+      timestamp: batch.latestProblemAt,
+      createdBy: batch.latestProblemAuthor || '',
+      problem: batch.reason,
+      risk: batch.risk,
+      problemDescription: batch.problemDescription || ''
+    }),
+    batchKey: batch.batchKey,
+    cardId: batch.cardId
+  }));
+}
+
+function buildEmployeeKeyDirectory(reports = []) {
+  const directory = new Map();
+  const unknownName = '\u041d\u0435\u0438\u0437\u0432\u0435\u0441\u0442\u043d\u043e';
+
+  for (const report of reports) {
+    const user = report.user || {};
+    const name = firstValue(
+      user.displayName,
+      [user.firstName, user.lastName].filter(Boolean).join(' '),
+      report.author,
+      report.userName
+    ) || unknownName;
+    const employeeKey = resolveReportEmployeeKey(report, reports);
+    const role = normalizeRole(user.role || '');
+
+    for (const id of [user.userId, report.author, report.userName, ...REPORT_USER_ALIASES]) {
+      if (!id) continue;
+      const normalizedId = normalizeText(id);
+      directory.set(normalizedId, name);
+      directory.set(`${normalizedId}:key`, employeeKey);
+      directory.set(`${normalizedId}:role`, role);
+    }
+  }
+
+  return directory;
+}
+
+function getEmployeeActivityStable(reports = [], events = [], periodReports = []) {
+  const directory = buildEmployeeKeyDirectory(reports);
   const activity = new Map();
-  const get = (name, role = '') => {
-    const key = normalizeText(name) || 'unknown';
-    if (!activity.has(key)) activity.set(key, { name: name || 'Неизвестно', role, reportsCount: 0, eventCount: 0, batches: new Set(), lastActivityAt: 0 });
-    return activity.get(key);
+  const unknownName = '\u041d\u0435\u0438\u0437\u0432\u0435\u0441\u0442\u043d\u043e';
+  const get = (key, name, role = '') => {
+    const resolvedKey = normalizeText(key) || normalizeText(name) || 'unknown';
+    if (!activity.has(resolvedKey)) {
+      activity.set(resolvedKey, {
+        employeeKey: resolvedKey,
+        name: name || unknownName,
+        role: normalizeRole(role),
+        reportsCount: 0,
+        eventCount: 0,
+        batches: new Set(),
+        lastActivityAt: 0
+      });
+    }
+    return activity.get(resolvedKey);
   };
 
   for (const report of periodReports) {
     const profile = report.user || {};
-    const name = firstValue(profile.displayName, [profile.firstName, profile.lastName].filter(Boolean).join(' '), report.author) || 'Неизвестно';
-    const entry = get(name, profile.role || '');
+    const name = firstValue(
+      profile.displayName,
+      [profile.firstName, profile.lastName].filter(Boolean).join(' '),
+      report.author,
+      report.userName
+    ) || unknownName;
+    const entry = get(resolveReportEmployeeKey(report, reports), name, profile.role || '');
     entry.reportsCount += 1;
     entry.lastActivityAt = Math.max(entry.lastActivityAt, toTimestamp(report.createdAt));
   }
+
   for (const event of events) {
-    const name = event.createdBy || directory.get(normalizeText(event.createdById)) || 'Неизвестно';
-    const entry = get(name, event.role || '');
+    const normalizedCreatedById = normalizeText(event.createdById);
+    const name = event.createdBy || directory.get(normalizedCreatedById) || unknownName;
+    const key = directory.get(`${normalizedCreatedById}:key`) || normalizedCreatedById || normalizeText(name) || 'unknown';
+    const role = event.role || directory.get(`${normalizedCreatedById}:role`) || '';
+    const entry = get(key, name, role);
     entry.eventCount += 1;
     entry.batches.add(event.batchKey);
     entry.lastActivityAt = Math.max(entry.lastActivityAt, event.timestamp);
@@ -332,6 +438,46 @@ function getEmployeeActivity(reports = [], events = [], periodReports = []) {
     batchesCount: entry.batches.size,
     lastActivityLabel: formatDateTime(entry.lastActivityAt)
   })).sort((left, right) => right.eventCount - left.eventCount || right.reportsCount - left.reportsCount || right.lastActivityAt - left.lastActivityAt);
+}
+
+function disambiguateDashboardEmployeeActivity(entries = []) {
+  return disambiguateDashboardLabels(entries, 'name', 'employeeKey');
+}
+
+function disambiguateDashboardRecentReports(reports = []) {
+  return disambiguateDashboardLabels(reports, 'author', 'employeeKey');
+}
+
+function disambiguateDashboardEventAuthors(events = []) {
+  return disambiguateDashboardLabels(events, 'createdBy', 'employeeKey');
+}
+
+function disambiguateDashboardLabels(items = [], labelField, keyField) {
+  const keysByLabel = new Map();
+
+  for (const item of items) {
+    const labelKey = normalizeText(item && item[labelField]);
+    const key = String(item && item[keyField] || '').trim();
+    if (!labelKey || !key) continue;
+    const keys = keysByLabel.get(labelKey) || new Set();
+    keys.add(key);
+    keysByLabel.set(labelKey, keys);
+  }
+
+  return items.map((item) => {
+    const label = String(item && item[labelField] || '').trim();
+    const key = String(item && item[keyField] || '').trim();
+    const labelKey = normalizeText(label);
+
+    if (!label || !key || !keysByLabel.has(labelKey) || keysByLabel.get(labelKey).size < 2) {
+      return item;
+    }
+
+    return {
+      ...item,
+      [labelField]: `${label} (${key})`
+    };
+  });
 }
 
 function getRecentPhotos(events = []) {
@@ -429,30 +575,152 @@ function buildDistributionChart(batches = [], mode) {
   };
 }
 
-function buildRecentReport(report) {
-  const summary = report.summary || {};
+function buildRecentReport(report, reports = []) {
+  const summary = resolveRecentReportCounts(report);
   const user = report.user || {};
-  const author = firstValue(user.displayName, [user.firstName, user.lastName].filter(Boolean).join(' '), report.author) || 'Автор не указан';
+  const cardsCount = summary.cardsCount;
+  const eventsCount = summary.eventsCount;
+  const photosCount = summary.photosCount;
+  const problemsCount = summary.problemsCount;
+  const author = firstValue(user.displayName, [user.firstName, user.lastName].filter(Boolean).join(' '), report.author, report.userName) || 'Автор не указан';
   return {
     reportId: report.reportId,
     author,
-    employeeKey: normalizeText(author),
-    role: user.role || 'Роль не указана',
+    employeeKey: resolveReportEmployeeKey(report, reports),
+    role: String(user.role || '').trim() || 'Роль не указана',
     displayCreatedAt: report.displayCreatedAt || formatDateTime(toTimestamp(report.createdAt)),
     summary: {
-      cardsCount: Number(summary.cardsCount) || 0,
-      eventsCount: Number(summary.eventsCount) || 0,
-      photosCount: Number(summary.photosCount) || 0,
-      problemsCount: Number(summary.problemCount ?? summary.problemsCount) || 0
+      cardsCount,
+      cardsCountLabel: formatCountLabel(cardsCount, ['партия', 'партии', 'партий']),
+      eventsCount,
+      eventsCountLabel: formatCountLabel(eventsCount, ['событие', 'события', 'событий']),
+      photosCount,
+      photosCountLabel: formatCountLabel(photosCount, ['фото', 'фото', 'фото']),
+      problemsCount,
+      problemsCountLabel: formatCountLabel(problemsCount, ['проблема', 'проблемы', 'проблем'])
     }
   };
 }
 
-function getLatestReportsByEmployee(reports = []) {
+function resolveRecentReportCounts(report = {}) {
+  const summary = report.summary || {};
+  const parsedCards = Array.isArray(report && report.cards) ? report.cards : [];
+  const rawCards = Array.isArray(report && report.raw && report.raw.cards) ? report.raw.cards : [];
+  const cards = Array.from({ length: Math.max(parsedCards.length, rawCards.length) }, (_, index) => {
+    const mergedCard = mergeSnapshotEntity(parsedCards[index], rawCards[index]);
+    const parsedEvents = Array.isArray(parsedCards[index] && parsedCards[index].events) ? parsedCards[index].events : [];
+    const rawEvents = Array.isArray(rawCards[index] && rawCards[index].events) ? rawCards[index].events : [];
+    mergedCard.events = Array.from(
+      { length: Math.max(parsedEvents.length, rawEvents.length) },
+      (_, eventIndex) => mergeSnapshotEntity(parsedEvents[eventIndex], rawEvents[eventIndex])
+    );
+    return mergedCard;
+  });
+  const derivedCardsCount = cards.length;
+  const derivedEventsCount = cards.reduce(
+    (total, card) => total + (Array.isArray(card && card.events) ? card.events.length : 0),
+    0
+  );
+  const derivedPhotosCount = cards.reduce((total, card) => total + countRecentReportCardPhotos(card), 0);
+  const derivedProblemsCount = cards.reduce(
+    (total, card) => total + (hasRecentReportProblem(card) ? 1 : 0),
+    0
+  );
+
+  return {
+    cardsCount: readRecentReportCount(summary.cardsCount, derivedCardsCount),
+    eventsCount: readRecentReportCount(summary.eventsCount, derivedEventsCount),
+    photosCount: readRecentReportCount(summary.photosCount, derivedPhotosCount),
+    problemsCount: readRecentReportCount(summary.problemCount ?? summary.problemsCount, derivedProblemsCount)
+  };
+}
+
+function readRecentReportCount(value, fallback) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function countRecentReportCardPhotos(card = {}) {
+  const photos = new Set();
+  collectRecentReportPhotos(card).forEach((photo) => photos.add(photo));
+  for (const event of Array.isArray(card && card.events) ? card.events : []) {
+    collectRecentReportPhotos(event).forEach((photo) => photos.add(photo));
+  }
+  return photos.size;
+}
+
+function collectRecentReportPhotos(source) {
+  return collectPhotoAliases([
+    source && source.photos,
+    source && source.photoFiles,
+    source && source.photoPath,
+    source && source.photoPaths,
+    source && source.photoUri,
+    source && source.photoUris
+  ]);
+}
+
+function hasRecentReportProblem(card = {}) {
+  const status = String(card.batchStatus || card.status || '').toLowerCase();
+  const extraFields = card && card.extraFields && typeof card.extraFields === 'object' && !Array.isArray(card.extraFields)
+    ? card.extraFields
+    : {};
+  return Boolean(
+    card.problem ||
+    card.problemType ||
+    card.risk ||
+    card.riskLevel ||
+    extraFields.problem ||
+    extraFields.problemType ||
+    extraFields.risk ||
+    extraFields.riskLevel ||
+    extraFields.problemDescription ||
+    extraFields.diseaseName ||
+    extraFields.pestName ||
+    extraFields.quarantineReason ||
+    status.includes('problem') ||
+    status.includes('risk') ||
+    status.includes('quarantine') ||
+    String(card.sterilityStatus || '').toLowerCase().includes('contamin') ||
+    (Array.isArray(card.events) ? card.events : []).some((event) => isRecentReportProblemEvent(event))
+  );
+}
+
+function isRecentReportProblemEvent(event = {}) {
+  const eventType = String(event.type || event.title || '')
+    .toLowerCase()
+    .replace(/[^a-zа-яё]/g, '');
+  const extraFields = event && event.extraFields && typeof event.extraFields === 'object' && !Array.isArray(event.extraFields)
+    ? event.extraFields
+    : {};
+
+  return Boolean(
+    event.problem ||
+    event.problemType ||
+    event.risk ||
+    event.riskLevel ||
+    event.problemDescription ||
+    event.diseaseName ||
+    event.pestName ||
+    event.quarantineReason ||
+    extraFields.problem ||
+    extraFields.problemType ||
+    extraFields.risk ||
+    extraFields.riskLevel ||
+    extraFields.problemDescription ||
+    extraFields.diseaseName ||
+    extraFields.pestName ||
+    extraFields.quarantineReason ||
+    ['problem', 'contamination', 'quarantine', 'quarantinereleased', 'greenhousedisease'].includes(eventType)
+  );
+}
+
+function getLatestReportsByEmployee(reports = [], allReports = reports) {
   const latestByEmployee = new Map();
 
   for (const sourceReport of reports) {
-    const report = buildRecentReport(sourceReport);
+    const report = buildRecentReport(sourceReport, allReports);
     const current = latestByEmployee.get(report.employeeKey);
     if (!current || toTimestamp(sourceReport.createdAt) > current.createdAt) {
       latestByEmployee.set(report.employeeKey, { ...report, createdAt: toTimestamp(sourceReport.createdAt) });
@@ -462,11 +730,11 @@ function getLatestReportsByEmployee(reports = []) {
   return [...latestByEmployee.values()]
     .sort((left, right) => right.createdAt - left.createdAt)
     .slice(0, 5)
-    .map(({ createdAt, ...report }) => report);
+    .map(({ createdAt: _createdAt, ...report }) => report);
 }
 
 function resolvePeriod(value) {
-  const key = PERIOD_OPTIONS.some(([period]) => period === value) ? value : '7d';
+  const key = PERIOD_KEYS.get(normalizeText(value)) || '7d';
   const now = new Date();
   const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
   const start = key === 'today' ? today : key === '7d' ? today - 6 * 86400000 : key === '30d' ? today - 29 * 86400000 : 0;
@@ -519,11 +787,11 @@ function buildEmployeeDirectory(reports) {
   const directory = new Map();
   for (const report of reports) {
     const user = report.user || {};
-    const name = firstValue(user.displayName, [user.firstName, user.lastName].filter(Boolean).join(' '));
+    const name = firstValue(user.displayName, [user.firstName, user.lastName].filter(Boolean).join(' '), report.author, report.userName);
     for (const id of [user.userId, report.author, report.userName, ...REPORT_USER_ALIASES]) {
       if (id && name) {
         directory.set(normalizeText(id), name);
-        directory.set(`${normalizeText(id)}:role`, user.role || '');
+        directory.set(`${normalizeText(id)}:role`, normalizeRole(user.role || ''));
       }
     }
   }
@@ -531,7 +799,8 @@ function buildEmployeeDirectory(reports) {
 }
 
 function buildBatchKey(report, cardId) {
-  return `${String(report && report.deviceId || report && report.reportId || 'unknown').trim()}::${String(cardId || '').trim()}`.toLowerCase();
+  const source = String(report && report.deviceId || `report:${String(report && report.reportId || 'unknown-report').trim()}`).trim();
+  return `${source}::${String(cardId || '').trim()}`.toLowerCase();
 }
 
 function getQuantity(event) {
@@ -546,6 +815,32 @@ function getPositiveQuantity(value) {
 
 function toArray(value) {
   return Array.isArray(value) ? value : value ? [value] : [];
+}
+
+function collectPhotoAliases(values) {
+  const result = [];
+  for (const value of toArray(values)) {
+    if (Array.isArray(value)) {
+      result.push(...collectPhotoAliases(value));
+      continue;
+    }
+    if (typeof value === 'string' && value.trim()) {
+      result.push(value.trim());
+      continue;
+    }
+    if (value && typeof value === 'object') {
+      result.push(...collectPhotoAliases([
+        value.photoPath,
+        value.photoUri,
+        value.path,
+        value.uri,
+        value.photoFiles,
+        value.photoPaths,
+        value.photoUris
+      ]));
+    }
+  }
+  return uniqueStrings(result);
 }
 
 function uniqueStrings(values) {
@@ -573,6 +868,10 @@ function normalizeText(value) {
   return String(value || '').trim().toLowerCase();
 }
 
+function normalizeRole(value) {
+  return String(value || '').trim() || 'Роль не указана';
+}
+
 function isUnknownAuthor(value) {
   return UNKNOWN_AUTHOR_VALUES.has(normalizeText(value));
 }
@@ -588,8 +887,8 @@ function formatDateTime(timestamp) {
 }
 
 function stageRank(value) {
-  const index = STAGE_ORDER.indexOf(value);
-  return index === -1 ? Number.MAX_SAFE_INTEGER : index;
+  const index = STAGE_ORDER_INDEX.get(normalizeText(value));
+  return index === undefined ? Number.MAX_SAFE_INTEGER : index;
 }
 
 function byNewest(left, right) {
@@ -603,10 +902,54 @@ module.exports = {
   getLatestBatchSnapshots,
   buildUniqueEventIndex,
   getAttentionBatches,
-  getEmployeeActivity,
+  buildAttentionEvents,
+  getEmployeeActivity: getEmployeeActivityStable,
   getProductionMetrics,
   getRecentPhotos,
   resolvePeriod,
   isUserInitiatedEvent,
   buildCurrentDashboardSnapshot
 };
+
+function mergeSnapshotEntity(parsed, raw) {
+  const merged = isPlainObject(parsed) ? { ...parsed } : {};
+
+  for (const [key, value] of Object.entries(isPlainObject(raw) ? raw : {})) {
+    if (typeof value === 'string') {
+      if (value.trim()) merged[key] = value;
+      continue;
+    }
+    if (Array.isArray(value)) {
+      if (hasMeaningfulValue(value)) merged[key] = value;
+      continue;
+    }
+    if (isPlainObject(value)) {
+      const nested = mergeSnapshotEntity(isPlainObject(merged[key]) ? merged[key] : {}, value);
+      if (Object.keys(nested).length) merged[key] = nested;
+      continue;
+    }
+    if (value !== undefined && value !== null) merged[key] = value;
+  }
+
+  return merged;
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function hasMeaningfulValue(value) {
+  if (typeof value === 'string') {
+    return Boolean(value.trim());
+  }
+
+  if (Array.isArray(value)) {
+    return value.some((item) => hasMeaningfulValue(item));
+  }
+
+  if (isPlainObject(value)) {
+    return Object.values(value).some((item) => hasMeaningfulValue(item));
+  }
+
+  return value !== undefined && value !== null;
+}

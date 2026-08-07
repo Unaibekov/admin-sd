@@ -40,7 +40,28 @@ const STAGE_SUBTABS = {
   'Высадка': ['all', 'planting', 'observation', 'care', 'problems', 'completion', 'movement', 'losses', 'sales']
 };
 
-const STAGE_PRIORITY = new Map(STAGE_ORDER.map((label, index) => [label.toLowerCase(), index]));
+const STAGE_ALIASES = {
+  introduction: STAGE_ORDER[0],
+  initiation: STAGE_ORDER[0],
+  'introduction to culture': STAGE_ORDER[0],
+  cloning: STAGE_ORDER[1],
+  propagation: STAGE_ORDER[1],
+  adaptation: STAGE_ORDER[2],
+  acclimatization: STAGE_ORDER[2],
+  greenhouse: STAGE_ORDER[3],
+  hardening: STAGE_ORDER[4],
+  planting: STAGE_ORDER[5],
+  transplanting: STAGE_ORDER[5]
+};
+const STAGE_KEYS = new Map([
+  ...STAGE_ORDER.map((label) => [normalizeText(label), label]),
+  ...Object.entries(STAGE_ALIASES).map(([alias, stage]) => [normalizeText(alias), stage])
+]);
+const STAGE_PRIORITY = new Map(STAGE_ORDER.map((label, index) => [normalizeText(label), index]));
+
+function isUnknownAuthor(value) {
+  return ['unknown', 'неизвестно', 'local-user'].includes(String(value || '').trim().toLowerCase());
+}
 
 function buildJournalModel(report, query = {}) {
   const cards = normalizeCards(report);
@@ -72,20 +93,29 @@ function buildJournalModel(report, query = {}) {
   };
 }
 
-function resolveReportTitle(report) {
-  if (!report) {
-    return 'Журнал';
-  }
-
-  const userName = report.user && (report.user.displayName || [report.user.firstName, report.user.lastName].filter(Boolean).join(' '));
-  return userName || report.reportId || 'Журнал';
+function resolveReportEmployeeName(report) {
+  const user = report && report.user ? report.user : {};
+  return firstValue([user.displayName, [user.firstName, user.lastName].filter(Boolean).join(' '), report && report.author, report && report.userName]);
 }
 
 function normalizeCards(report) {
-  const cards = Array.isArray(report && report.cards) ? report.cards : [];
+  const parsedCards = Array.isArray(report && report.cards) ? report.cards : [];
+  const rawCards = Array.isArray(report && report.raw && report.raw.cards) ? report.raw.cards : [];
+  const cards = Array.from({ length: Math.max(parsedCards.length, rawCards.length) }, (_, index) => {
+    const parsedCard = parsedCards[index] || {};
+    const rawCard = rawCards[index] || {};
+    const mergedCard = mergeSnapshotEntity(parsedCard, rawCard);
+    const parsedEvents = Array.isArray(parsedCard && parsedCard.events) ? parsedCard.events : [];
+    const rawEvents = Array.isArray(rawCard && rawCard.events) ? rawCard.events : [];
+    mergedCard.events = Array.from(
+      { length: Math.max(parsedEvents.length, rawEvents.length) },
+      (_, eventIndex) => mergeSnapshotEntity(parsedEvents[eventIndex], rawEvents[eventIndex])
+    );
+    return mergedCard;
+  });
 
   return cards
-    .map((card, index) => normalizeCard(card, index))
+    .map((card, index) => normalizeCard(card, index, report))
     .sort((left, right) => {
       const leftStageRank = stageRank(left.stage);
       const rightStageRank = stageRank(right.stage);
@@ -103,17 +133,17 @@ function normalizeCards(report) {
     });
 }
 
-function normalizeCard(card, index) {
-  const entries = normalizeCardEntries(card);
+function normalizeCard(card, index, report) {
+  const entries = normalizeCardEntries(card, report);
   const latestEntry = entries[0] || null;
-  const stage = firstValue(card && [card.stage, card.batchStatus, card.status]) || 'Без стадии';
+  const stage = canonicalizeStage(firstValue(card && [card.stage, card.batchStatus, card.status])) || 'Без стадии';
 
   return {
     cardId: firstValue(card && [card.cardId]) || `card-${index + 1}`,
     code: firstValue(card && [card.code, card.partyCode, card.partyId, card.id]) || `card-${index + 1}`,
-    cultureName: firstValue(card && [card.cultureName, card.culture, card.crop, card.plant]),
-    speciesName: firstValue(card && [card.speciesName, card.sort, card.grade]),
-    varietyName: firstValue(card && [card.varietyName, card.variety, card.cultivar]),
+    cultureName: firstVisiblePlantValue(card && [card.cultureName, card.culture, card.crop, card.plant]),
+    speciesName: firstVisiblePlantValue(card && [card.speciesName, card.sort, card.grade]),
+    varietyName: firstVisiblePlantValue(card && [card.varietyName, card.variety, card.cultivar]),
     stage,
     batchStatus: firstValue(card && [card.batchStatus, card.status, card.partyStatus]),
     sterilityStatus: firstValue(card && [card.sterilityStatus]),
@@ -122,8 +152,8 @@ function normalizeCard(card, index) {
     locationDescription: firstValue(card && [card.locationDescription, card.location, card.place, card.position]),
     createdAt: firstValue(card && [card.createdAt, card.date, card.time]),
     updatedAt: firstValue(card && [card.updatedAt]),
-    author: firstValue(card && [card.author, card.user, card.userName]),
-    photos: Array.isArray(card && card.photos) ? card.photos : [],
+    author: firstValue(card && [card.author, card.user, card.userName, report && report.author, report && report.userName]),
+    photos: normalizePhotos(card),
     entries,
     latestEntry,
     entryCount: entries.length,
@@ -140,10 +170,10 @@ function normalizeCard(card, index) {
   };
 }
 
-function normalizeCardEntries(card) {
+function normalizeCardEntries(card, report) {
   const events = Array.isArray(card && card.events) ? card.events : [];
   return events
-    .map((event, index) => normalizeEntry(card, event, index))
+    .map((event, index) => normalizeEntry(card, event, index, report))
     .sort((left, right) => entryTime(right) - entryTime(left));
 }
 
@@ -153,31 +183,42 @@ function normalizeReportEntries(cards) {
     .sort((left, right) => entryTime(right) - entryTime(left));
 }
 
-function normalizeEntry(card, event, index) {
-  const stage = firstValue(event && [event.stage, card && card.stage, card && card.batchStatus, card && card.status]) || 'Без стадии';
+function normalizeEntry(card, event, index, report) {
+  const stage = canonicalizeStage(firstValue(event && [event.stage, card && card.stage, card && card.batchStatus, card && card.status])) || 'Без стадии';
   const cardCode = firstValue(card && [card.code]);
-  const cardCulture = [firstValue(card && [card.cultureName, card && card.culture, card && card.crop, card && card.plant]), firstValue(card && [card.speciesName, card && card.sort, card && card.grade]), firstValue(card && [card.varietyName, card && card.variety, card && card.cultivar])]
-    .filter(Boolean)
+  const cardCulture = [
+    firstVisiblePlantValue(card && [card.cultureName, card && card.culture, card && card.crop, card && card.plant]),
+    firstVisiblePlantValue(card && [card.speciesName, card && card.sort, card && card.grade]),
+    firstVisiblePlantValue(card && [card.varietyName, card && card.variety, card && card.cultivar])
+  ]
+    .filter(isVisiblePlantPart)
     .join(' · ');
+  const reportAuthor = resolveReportEmployeeName(report);
+  const reportUserId = firstValue(report && [report.user && report.user.userId]);
+  const rawCreatedBy = firstValue(event && [event.createdBy, event.author, event.user, event.userName]);
+  const fallbackCreatedBy = firstValue(card && [card.author, card.user, card.userName]) || reportAuthor;
 
   const entry = {
     entryId: firstValue(event && [event.eventId]) || `${firstValue(card && [card.cardId, card && card.code]) || 'card'}-${index + 1}`,
     cardId: firstValue(card && [card.cardId]),
     cardCode,
     cardCulture,
-    cardStage: firstValue(card && [card.stage, card.batchStatus, card.status]),
+    cardStage: canonicalizeStage(firstValue(card && [card.stage, card.batchStatus, card.status])),
     cardStatus: firstValue(card && [card.batchStatus, card.status]),
     cardLocationDescription: firstValue(card && [card.locationDescription, card.location, card.place, card.position]),
     cardCurrentQuantity: firstValue(card && [card.currentQuantity, card.quantity]),
     stage,
-    createdBy: firstValue(event && [event.createdBy, event.author, event.user, event.userName]) || firstValue(card && [card.author, card.user, card.userName]) || 'Неизвестно',
+    createdBy: isUnknownAuthor(rawCreatedBy) || (reportUserId && normalizeText(rawCreatedBy) === normalizeText(reportUserId))
+      ? fallbackCreatedBy || 'Неизвестно'
+      : rawCreatedBy || fallbackCreatedBy || 'Неизвестно',
     type: firstValue(event && [event.title, event.type, event.eventType, event.name]) || 'Событие',
     date: firstValue(event && [event.createdAt, event.timestamp, event.time, event.date]) || firstValue(card && [card.updatedAt, card.createdAt, card.date]),
     createdAt: firstValue(event && [event.createdAt, event.date, event.time, event.timestamp, card && card.updatedAt, card && card.createdAt, card && card.date]),
-    comment: firstValue(event && [event.comment, event.message, event.text, event.details]),
+    comment: readEventField(event, ['comment', 'message', 'text', 'details']),
     photos: normalizePhotos(event),
-    problemType: firstValue(event && [event.problemType, event.problem]),
-    riskLevel: firstValue(event && [event.riskLevel, event.risk]),
+    problemType: readEventField(event, ['problemType', 'problem']),
+    riskLevel: readEventField(event, ['riskLevel', 'risk']),
+    problemDescription: readEventField(event, ['problemDescription', 'diseaseName', 'pestName', 'quarantineReason', 'reason']),
     quantity: firstValue(event && [event.quantity, event.count]),
     count: firstValue(event && [event.count]),
     previousQuantity: firstValue(event && [event.previousQuantity]),
@@ -188,7 +229,7 @@ function normalizeEntry(card, event, index) {
   const delta = numericDelta(entry.previousQuantity, entry.currentQuantity);
   const subtype = classifyJournalSubtype(entry, stage);
   const hasPhotos = entry.photos.length > 0;
-  const isProblem = Boolean(entry.problemType || entry.riskLevel || looksProblemLike(entry.type, entry.comment));
+  const isProblem = Boolean(entry.problemType || entry.riskLevel || looksProblemLike(entry.type, entry.comment, entry.problemDescription));
 
   return {
     ...entry,
@@ -207,6 +248,7 @@ function classifyJournalSubtype(entry, stage) {
   const haystack = [
     entry.type,
     entry.comment,
+    entry.problemDescription,
     entry.problemType,
     entry.riskLevel
   ]
@@ -214,7 +256,7 @@ function classifyJournalSubtype(entry, stage) {
     .join(' ')
     .toLowerCase();
 
-  if (looksProblemLike(entry.type, entry.comment, entry.problemType, entry.riskLevel)) {
+  if (entry.problemType || entry.riskLevel || entry.problemDescription || looksProblemLike(entry.type, entry.comment, entry.problemType, entry.riskLevel)) {
     return 'problems';
   }
 
@@ -318,17 +360,17 @@ function filterEntries(entries, selectedStage, selectedSubtab) {
 }
 
 function resolveStage(value) {
-  const normalized = String(value || '').trim();
+  const normalized = normalizeText(value);
   if (!normalized) return 'all';
   if (normalized === 'important') return 'important';
   if (normalized === 'all') return 'all';
-  return STAGE_ORDER.find((stage) => sameStage(stage, normalized)) || 'all';
+  return canonicalizeStage(value) || 'all';
 }
 
 function resolveSubtab(value, options) {
-  const normalized = String(value || '').trim();
-  const available = new Set((options || []).map((option) => option.key));
-  if (available.has(normalized)) return normalized;
+  const normalized = normalizeText(value);
+  const match = (options || []).find((option) => normalizeText(option.key) === normalized);
+  if (match) return match.key;
   return 'all';
 }
 
@@ -339,12 +381,32 @@ function resolveEntryId(value, entries) {
 }
 
 function sameStage(left, right) {
-  return String(left || '').trim().toLowerCase() === String(right || '').trim().toLowerCase();
+  return normalizeText(canonicalizeStage(left)) === normalizeText(canonicalizeStage(right));
+}
+
+function canonicalizeStage(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  return STAGE_KEYS.get(normalizeText(text)) || text;
+}
+
+function normalizeText(value) {
+  return String(value || '').trim().toLowerCase();
 }
 
 function stageRank(stage) {
-  const key = String(stage || '').trim().toLowerCase();
+  const key = normalizeText(canonicalizeStage(stage));
   return STAGE_PRIORITY.has(key) ? STAGE_PRIORITY.get(key) : Number.POSITIVE_INFINITY;
+}
+
+function isVisiblePlantPart(value) {
+  const text = String(value || '').trim();
+  return text && text.toLowerCase() !== 'отсутствует';
+}
+
+function firstVisiblePlantValue(values) {
+  const list = Array.isArray(values) ? values : [values];
+  return list.find(isVisiblePlantPart) || '';
 }
 
 function firstValue(values) {
@@ -360,6 +422,14 @@ function firstValue(values) {
   return '';
 }
 
+function readEventField(event, keys) {
+  const extra = event && event.extraFields && typeof event.extraFields === 'object' && !Array.isArray(event.extraFields)
+    ? event.extraFields
+    : {};
+  const list = Array.isArray(keys) ? keys : [keys];
+  return firstValue(list.flatMap((key) => [event && event[key], extra[key]]));
+}
+
 function containsAny(text, fragments) {
   return fragments.some((fragment) => text.includes(fragment));
 }
@@ -370,9 +440,14 @@ function looksProblemLike(...values) {
 }
 
 function normalizePhotos(source) {
-  const photos = source && Array.isArray(source.photos) ? source.photos : [];
-  const photoFiles = source && Array.isArray(source.photoFiles) ? source.photoFiles : [];
-  return [...photos, ...photoFiles].filter(Boolean);
+  return collectPhotoAliases([
+    source && source.photos,
+    source && source.photoFiles,
+    source && source.photoPath,
+    source && source.photoPaths,
+    source && source.photoUri,
+    source && source.photoUris
+  ]);
 }
 
 function entryTime(entry) {
@@ -398,11 +473,91 @@ function daysInStage(dateValue) {
 }
 
 function countCardPhotos(card) {
-  const cardPhotos = Array.isArray(card && card.photos) ? card.photos.length : 0;
+  const cardPhotos = normalizePhotos(card).length;
   const eventPhotos = Array.isArray(card && card.events)
     ? card.events.reduce((total, event) => total + normalizePhotos(event).length, 0)
     : 0;
   return cardPhotos + eventPhotos;
+}
+
+function collectPhotoAliases(values) {
+  const result = [];
+  for (const value of Array.isArray(values) ? values : [values]) {
+    if (Array.isArray(value)) {
+      result.push(...collectPhotoAliases(value));
+      continue;
+    }
+    if (typeof value === 'string' && value.trim()) {
+      result.push(value.trim());
+      continue;
+    }
+    if (value && typeof value === 'object') {
+      result.push(...collectPhotoAliases([
+        value.photoPath,
+        value.photoUri,
+        value.path,
+        value.uri,
+        value.photoFiles,
+        value.photoPaths,
+        value.photoUris
+      ]));
+    }
+  }
+  return [...new Set(result)];
+}
+
+function mergeSnapshotEntity(parsed, raw) {
+  const merged = isPlainObject(parsed) ? { ...parsed } : {};
+
+  for (const [key, value] of Object.entries(isPlainObject(raw) ? raw : {})) {
+    if (typeof value === 'string') {
+      if (value.trim()) merged[key] = value;
+      continue;
+    }
+    if (Array.isArray(value)) {
+      if (hasMeaningfulValue(value)) merged[key] = value;
+      continue;
+    }
+    if (isPlainObject(value)) {
+      const nested = mergeSnapshotEntity(isPlainObject(merged[key]) ? merged[key] : {}, value);
+      if (Object.keys(nested).length) merged[key] = nested;
+      continue;
+    }
+    if (value !== undefined && value !== null) merged[key] = value;
+  }
+
+  return merged;
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function hasMeaningfulValue(value) {
+  if (typeof value === 'string') {
+    return Boolean(value.trim());
+  }
+
+  if (Array.isArray(value)) {
+    return value.some((item) => hasMeaningfulValue(item));
+  }
+
+  if (isPlainObject(value)) {
+    return Object.values(value).some((item) => hasMeaningfulValue(item));
+  }
+
+  return value !== undefined && value !== null;
+}
+
+const JOURNAL_TITLE = '\u0416\u0443\u0440\u043d\u0430\u043b';
+
+function resolveReportTitle(report) {
+  if (!report) {
+    return JOURNAL_TITLE;
+  }
+
+  const userName = resolveReportEmployeeName(report);
+  return userName || report.reportId || JOURNAL_TITLE;
 }
 
 module.exports = {
@@ -420,3 +575,4 @@ module.exports = {
   resolveStage,
   resolveSubtab
 };
+

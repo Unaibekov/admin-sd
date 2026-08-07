@@ -1,3 +1,5 @@
+const { resolveReportEmployeeKey } = require('./reportsPageModel');
+
 const STAGES = [
   'Введение в культуру',
   'Клонирование',
@@ -6,6 +8,23 @@ const STAGES = [
   'Закалка',
   'Высадка'
 ];
+const STAGE_ALIASES = {
+  introduction: STAGES[0],
+  initiation: STAGES[0],
+  'introduction to culture': STAGES[0],
+  cloning: STAGES[1],
+  propagation: STAGES[1],
+  adaptation: STAGES[2],
+  acclimatization: STAGES[2],
+  greenhouse: STAGES[3],
+  hardening: STAGES[4],
+  planting: STAGES[5],
+  transplanting: STAGES[5]
+};
+const STAGE_KEYS = new Map([
+  ...STAGES.map((stage) => [normalizeText(stage), stage]),
+  ...Object.entries(STAGE_ALIASES).map(([alias, stage]) => [normalizeText(alias), stage])
+]);
 
 const CATEGORY_DEFINITIONS = [
   ['all', 'Все события'],
@@ -23,6 +42,7 @@ const CATEGORY_DEFINITIONS = [
 ];
 
 const CATEGORY_LABELS = Object.fromEntries(CATEGORY_DEFINITIONS);
+const CATEGORY_KEYS = new Map(CATEGORY_DEFINITIONS.map(([value]) => [normalizeText(value), value]));
 const AUTOMATIC_EVENT_TYPES = new Set([
   'batchcreated',
   'qrgenerated',
@@ -38,6 +58,7 @@ const PERIOD_OPTIONS = [
   ['30d', 'Месяц'],
   ['custom', 'Выбрать период']
 ];
+const PERIOD_KEYS = new Map(PERIOD_OPTIONS.map(([value]) => [normalizeText(value), value]));
 
 const QUICK_OPTIONS = [
   ['all', 'Все'],
@@ -48,11 +69,19 @@ const QUICK_OPTIONS = [
   ['sales', 'Продажи'],
   ['photos', 'С фото']
 ];
+const QUICK_KEYS = new Map(QUICK_OPTIONS.map(([value]) => [normalizeText(value), value]));
+const UNKNOWN_EMPLOYEE = '\u041d\u0435\u0438\u0437\u0432\u0435\u0441\u0442\u043d\u043e';
+const ALL_EMPLOYEES = '\u0412\u0441\u0435 \u0441\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a\u0438';
 
 function buildJournalPageModel(reports = [], query = {}) {
   const allEvents = buildGlobalJournal(reports);
-  const filters = resolveFilters(query);
-  const events = filterJournalEvents(allEvents, filters);
+  const employeeOptions = buildEmployeeOptionsStable(allEvents);
+  const filters = resolveFilters(query, employeeOptions);
+  const selectedReportId = String(query && query.reportId || '').trim();
+  const events = filterJournalEvents(allEvents, filters).map((event) => ({
+    ...event,
+    batchUrl: appendReportContext(event.batchUrl, selectedReportId)
+  }));
   const groups = groupEventsByDate(events);
   const cardGroups = groupEventsByCard(events);
 
@@ -65,9 +94,12 @@ function buildJournalPageModel(reports = [], query = {}) {
     hasResults: events.length > 0,
     periodOptions: PERIOD_OPTIONS.map(([value, label]) => ({ value, label })),
     quickOptions: QUICK_OPTIONS.map(([value, label]) => ({ value, label })),
-    employeeOptions: buildEmployeeOptions(allEvents),
+    employeeOptions,
     categoryOptions: CATEGORY_DEFINITIONS.map(([value, label]) => ({ value, label })),
-    stageOptions: ['all', ...STAGES].map((value) => ({ value, label: value === 'all' ? 'Все стадии' : value })),
+    stageOptions: [
+      { value: 'all', label: 'Все стадии' },
+      ...STAGES.map((stage) => ({ value: stage, label: stage }))
+    ],
     summary: {
       total: events.length,
       problems: events.filter((event) => event.category === 'problems').length,
@@ -85,14 +117,19 @@ function buildGlobalJournal(reports = []) {
   const employees = buildEmployeeDirectory(reports);
 
   for (const report of Array.isArray(reports) ? reports : []) {
-    const cards = Array.isArray(report && report.cards) ? report.cards : [];
+    const parsedCards = Array.isArray(report && report.cards) ? report.cards : [];
     const rawCards = Array.isArray(report && report.raw && report.raw.cards) ? report.raw.cards : [];
 
-    cards.forEach((card, cardIndex) => {
-      const rawEvents = Array.isArray(rawCards[cardIndex] && rawCards[cardIndex].events)
-        ? rawCards[cardIndex].events
-        : [];
-      const cardEvents = Array.isArray(card && card.events) ? card.events : [];
+    Array.from({ length: Math.max(parsedCards.length, rawCards.length) }, (_, cardIndex) => {
+      const parsedCard = parsedCards[cardIndex] || {};
+      const rawCard = rawCards[cardIndex] || {};
+      const card = mergeSnapshotEntity(parsedCard, rawCard);
+      const rawEvents = Array.isArray(rawCard && rawCard.events) ? rawCard.events : [];
+      const parsedEvents = Array.isArray(parsedCard && parsedCard.events) ? parsedCard.events : [];
+      const cardEvents = Array.from(
+        { length: Math.max(parsedEvents.length, rawEvents.length) },
+        (_, eventIndex) => mergeSnapshotEntity(parsedEvents[eventIndex], rawEvents[eventIndex])
+      );
 
       cardEvents.forEach((event, eventIndex) => {
         const normalizedEvent = normalizeJournalEvent(event, card, report, rawEvents[eventIndex], eventIndex, employees);
@@ -108,8 +145,9 @@ function deduplicateEvents(events = []) {
   const uniqueEvents = new Map();
 
   for (const event of Array.isArray(events) ? events : []) {
-    const key = event.sourceEventId
-      ? `id:${event.sourceEventId}`
+    const stableEventId = firstValue([event.sourceEventId, event.id]);
+    const key = stableEventId
+      ? `id:${stableEventId}`
       : `fallback:${event.cardId}|${event.type}|${event.date}|${event.createdBy}|${event.title}|${event.comment}`.toLowerCase();
     const existing = uniqueEvents.get(key);
 
@@ -123,38 +161,51 @@ function deduplicateEvents(events = []) {
 }
 
 function normalizeJournalEvent(event = {}, card = {}, report = {}, rawEvent = {}, index = 0, employees = new Map()) {
-  const date = firstValue([event.createdAt, event.timestamp, event.time, event.date, card.updatedAt, report.createdAt]);
-  const type = firstValue([event.type, event.eventType, event.name]) || 'unknown';
-  const sourceEventId = firstValue([rawEvent && rawEvent.eventId]);
-  const eventId = sourceEventId || firstValue([event.eventId]) || `${card.cardId || card.code || 'card'}-${index + 1}`;
-  const photos = normalizePhotoUrls(report, event);
-  const category = getEventCategory(event, photos.length > 0);
-  const title = formatJournalEventTitle(event, category);
-  const rawCreatedById = firstValue([event.createdBy, event.author, event.user, event.userName]);
-  const createdById = isUnknownAuthor(rawCreatedById) ? firstValue([report.user && report.user.userId]) : rawCreatedById;
-  const createdBy = employees.get(normalizeText(createdById)) || createdById || firstValue([report.user && report.user.displayName]) || 'Неизвестно';
+  const mergedEvent = mergeSnapshotEntity(event, rawEvent);
+  event = mergedEvent;
+  const date = firstValue([mergedEvent.createdAt, mergedEvent.timestamp, mergedEvent.time, mergedEvent.date, card.updatedAt, report.createdAt]);
+  const type = firstValue([mergedEvent.type, mergedEvent.eventType, mergedEvent.name]) || 'unknown';
+  const sourceEventId = firstValue([rawEvent && rawEvent.eventId, mergedEvent.eventId]);
+  const eventId = sourceEventId || firstValue([mergedEvent.eventId]) || `${card.cardId || card.code || 'card'}-${index + 1}`;
+  const photos = normalizePhotoUrls(report, mergedEvent, rawEvent);
+  const category = getEventCategory(mergedEvent, photos.length > 0);
+  const title = formatJournalEventTitle(mergedEvent, category);
+  const rawCreatedById = firstValue([mergedEvent.createdBy, mergedEvent.author, mergedEvent.user, mergedEvent.userName]);
+  const reportUserId = firstValue([report.user && report.user.userId, report.author, report.userName]);
+  const reportUserName = resolveReportEmployeeName(report);
+  const createdById = isUnknownAuthor(rawCreatedById) || REPORT_USER_ALIASES.includes(String(rawCreatedById || '').trim())
+    ? reportUserId
+    : rawCreatedById || reportUserId;
+  const createdBy = employees.get(normalizeText(createdById)) || reportUserName || createdById || UNKNOWN_EMPLOYEE;
+  const employeeKey = employees.get(`${normalizeText(createdById)}:key`) || createdBy || createdById || 'unknown';
   const cardId = String(card.cardId || card.code || '').trim();
-  const culture = [card.cultureName, card.speciesName, card.varietyName].filter(isVisiblePlantPart).join(' · ') || card.code || 'Партия без названия';
-  const stage = firstValue([event.stage, card.stage, card.batchStatus, card.status]) || 'Без стадии';
+  const batchKey = buildBatchKey(report, cardId);
+  const culture = [
+    firstVisiblePlantValue(card.cultureName, card.culture, card.crop, card.plant),
+    firstVisiblePlantValue(card.speciesName, card.sort, card.grade),
+    firstVisiblePlantValue(card.varietyName, card.variety, card.cultivar)
+  ].filter(isVisiblePlantPart).join(' \u00b7 ') || card.code || '\u041f\u0430\u0440\u0442\u0438\u044f \u0431\u0435\u0437 \u043d\u0430\u0437\u0432\u0430\u043d\u0438\u044f';
+  const stage = canonicalizeStage(firstValue([event.stage, card.stage, card.batchStatus, card.status])) || '\u0411\u0435\u0437 \u0441\u0442\u0430\u0434\u0438\u0438';
   const comment = firstValue([event.comment, event.message, event.text, event.details]);
   const details = buildEventDetails(event, category);
   const quantity = getEventQuantity(event);
   const cardCreatedAt = firstValue([card.createdAt, card.createdDate, report.createdAt, date]);
   const cardQuantity = firstValue([card.currentQuantity, card.quantity, card.initialQuantity, event.currentQuantity, event.quantity, event.count]);
   const cardStageStartedAt = firstValue([card.stageChangedAt, card.stageStartedAt, card.stageEnteredAt, card.updatedAt, cardCreatedAt]);
-  const batchUrl = `/stages?cardId=${encodeURIComponent(cardId)}&tab=journal&eventId=${encodeURIComponent(eventId)}#journal`;
+  const batchUrl = `/stages?batchId=${encodeURIComponent(batchKey)}&tab=journal&eventId=${encodeURIComponent(eventId)}#journal`;
 
   return {
     id: eventId,
     sourceEventId,
     cardId,
-    code: firstValue([card.code, card.partyCode, cardId]) || 'Без кода',
+    batchKey,
+    code: firstValue([card.code, card.partyCode, cardId]) || '\u0411\u0435\u0437 \u043a\u043e\u0434\u0430',
     culture,
     stage,
     cardCreatedAt,
     cardDateLabel: formatJournalShortDate(cardCreatedAt),
     cardQuantity,
-    cardQuantityLabel: cardQuantity ? `${cardQuantity} шт.` : '',
+    cardQuantityLabel: cardQuantity ? `${cardQuantity} \u0448\u0442.` : '',
     cardDaysInStage: getDaysInStage(cardStageStartedAt),
     cardDaysInStageLabel: formatDaysInStage(getDaysInStage(cardStageStartedAt)),
     type,
@@ -167,6 +218,7 @@ function normalizeJournalEvent(event = {}, card = {}, report = {}, rawEvent = {}
     snapshotTimestamp: toTimestamp(firstValue([card.updatedAt, report.createdAt, date])),
     createdBy,
     createdById,
+    employeeKey,
     comment,
     details,
     quantity,
@@ -194,16 +246,40 @@ function getEventQuantity(event) {
 
 function isVisiblePlantPart(value) {
   const text = String(value || '').trim();
-  return text && text.toLowerCase() !== 'отсутствует';
+  return text && text.toLowerCase() !== '\u043e\u0442\u0441\u0443\u0442\u0441\u0442\u0432\u0443\u0435\u0442';
+}
+
+function appendReportContext(batchUrl, reportId) {
+  const baseUrl = String(batchUrl || '').trim();
+  const safeReportId = String(reportId || '').trim();
+  if (!baseUrl || !safeReportId) return baseUrl;
+  if (baseUrl.includes('reportId=')) return baseUrl;
+
+  const [urlWithoutHash, hash = ''] = baseUrl.split('#');
+  const separator = urlWithoutHash.includes('?') ? '&' : '?';
+  return `${urlWithoutHash}${separator}reportId=${encodeURIComponent(safeReportId)}${hash ? `#${hash}` : ''}`;
+}
+
+function firstVisiblePlantValue(...values) {
+  return values.find(isVisiblePlantPart) || '';
+}
+
+function resolveReportEmployeeName(report = {}) {
+  const user = report && report.user ? report.user : {};
+  return firstValue([user.displayName, [user.firstName, user.lastName].filter(Boolean).join(' '), report.author, report.userName]);
 }
 
 function buildEmployeeDirectory(reports = []) {
   const employees = new Map();
   for (const report of Array.isArray(reports) ? reports : []) {
     const user = report && report.user ? report.user : {};
-    const displayName = firstValue([user.displayName, [user.firstName, user.lastName].filter(Boolean).join(' ')]);
+    const displayName = resolveReportEmployeeName(report);
+    const employeeKey = resolveReportEmployeeKey(report, reports);
     for (const identifier of [user.userId, report && report.author, report && report.userName, ...REPORT_USER_ALIASES]) {
-      if (identifier && displayName) employees.set(normalizeText(identifier), displayName);
+      if (identifier && displayName) {
+        employees.set(normalizeText(identifier), displayName);
+        employees.set(`${normalizeText(identifier)}:key`, employeeKey);
+      }
     }
   }
   return employees;
@@ -211,9 +287,9 @@ function buildEmployeeDirectory(reports = []) {
 
 function getEventCategory(event = {}, hasPhotos = false) {
   const type = normalizeType(event);
+  if (hasProblemSignals(event)) return 'problems';
   if (['observation', 'adaptationstress', 'greenhouseobservation', 'hardeningobservation', 'plantingobservation'].includes(type)) return 'observation';
   if (['care', 'adaptationcare', 'greenhousecare', 'hardeningcare', 'plantingcare'].includes(type)) return 'care';
-  if (['problem', 'contamination', 'quarantine', 'quarantinereleased', 'greenhousedisease'].includes(type)) return 'problems';
   if (['movement', 'stagechange', 'statuschange'].includes(type)) return 'movement';
   if (['introloss', 'loss', 'death', 'discard'].includes(type)) return 'losses';
   if (type === 'sale') return 'sales';
@@ -233,9 +309,9 @@ function isPlantEvent(event) {
 function filterJournalEvents(events = [], filters = {}) {
   return (Array.isArray(events) ? events : []).filter((event) => {
     if (!matchesPeriod(event.timestamp, filters)) return false;
-    if (filters.employee !== 'all' && normalizeText(event.createdBy) !== normalizeText(filters.employee)) return false;
+    if (filters.employee !== 'all' && normalizeText(event.employeeKey || event.createdBy) !== normalizeText(filters.employee)) return false;
     if (filters.category !== 'all' && event.category !== filters.category) return false;
-    if (filters.stage !== 'all' && normalizeText(event.stage) !== normalizeText(filters.stage)) return false;
+    if (filters.stage !== 'all' && normalizeText(canonicalizeStage(event.stage)) !== normalizeText(filters.stage)) return false;
     if (filters.query && !event.searchText.includes(filters.query.toLowerCase())) return false;
     if (filters.quick === 'important' && !event.isImportant) return false;
     if (filters.quick === 'problems' && event.category !== 'problems') return false;
@@ -263,7 +339,7 @@ function groupEventsByDate(events = []) {
 function groupEventsByCard(events = []) {
   const groups = new Map();
   for (const event of Array.isArray(events) ? events : []) {
-    const key = event.cardId || event.code || event.culture;
+    const key = event.batchKey || event.cardId || event.code || event.culture;
     if (!groups.has(key)) {
       groups.set(key, {
         key,
@@ -324,24 +400,68 @@ function formatDaysInStage(days) {
   return `${value} дн. в стадии`;
 }
 
-function resolveFilters(query = {}) {
+function resolveFilters(query = {}, employeeOptions = []) {
   const hasRange = Boolean(String(query.dateFrom || '').trim() || String(query.dateTo || '').trim());
-  const period = PERIOD_OPTIONS.some(([value]) => value === query.period) ? query.period : hasRange ? 'custom' : 'all';
+  const period = PERIOD_KEYS.get(normalizeText(query.period)) || (hasRange ? 'custom' : 'all');
+  const requestedEmployee = String(query.employee || 'all').trim() || 'all';
+  const normalizedRequestedEmployee = normalizeText(requestedEmployee);
+  const employee = (employeeOptions || []).find((option) => normalizeText(option.value) === normalizedRequestedEmployee);
   return {
     period,
     dateFrom: String(query.dateFrom || '').trim(),
     dateTo: String(query.dateTo || '').trim(),
-    employee: String(query.employee || 'all').trim() || 'all',
-    category: CATEGORY_LABELS[query.category] ? String(query.category) : 'all',
-    stage: STAGES.includes(String(query.stage || '').trim()) ? String(query.stage).trim() : 'all',
+    employee: employee ? employee.value : 'all',
+    category: CATEGORY_KEYS.get(normalizeText(query.category)) || 'all',
+    stage: normalizeText(query.stage) === 'all' ? 'all' : canonicalizeStage(query.stage) || 'all',
     query: String(query.q || '').trim(),
-    quick: ['important', 'problems', 'losses', 'sales', 'photos', 'quarantine'].includes(String(query.quick || '')) ? String(query.quick) : 'all'
+    quick: QUICK_KEYS.get(normalizeText(query.quick)) || 'all'
   };
 }
 
-function buildEmployeeOptions(events) {
-  return ['all', ...new Set(events.map((event) => event.createdBy).filter((value) => value && value !== 'Неизвестно'))]
-    .map((value) => ({ value, label: value === 'all' ? 'Все сотрудники' : value }));
+function canonicalizeStage(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  return STAGE_KEYS.get(normalizeText(text)) || text;
+}
+
+function buildEmployeeOptionsStable(events) {
+  const employees = new Map();
+  for (const event of Array.isArray(events) ? events : []) {
+    if (!event || !event.createdBy || normalizeText(event.createdBy) === normalizeText(UNKNOWN_EMPLOYEE)) continue;
+    const key = String(event.employeeKey || event.createdBy).trim();
+    if (!key || employees.has(key)) continue;
+    employees.set(key, { value: key, label: event.createdBy });
+  }
+
+  return [
+    { value: 'all', label: ALL_EMPLOYEES },
+    ...disambiguateEmployeeOptionLabels([...employees.values()]).sort((left, right) => left.label.localeCompare(right.label, 'ru') || left.value.localeCompare(right.value, 'ru'))
+  ];
+}
+
+function disambiguateEmployeeOptionLabels(options = []) {
+  const duplicateCounts = new Map();
+
+  for (const option of options) {
+    const labelKey = normalizeText(option && option.label);
+    if (!labelKey) continue;
+    duplicateCounts.set(labelKey, (duplicateCounts.get(labelKey) || 0) + 1);
+  }
+
+  return options.map((option) => {
+    const label = String(option && option.label || '').trim();
+    const value = String(option && option.value || '').trim();
+    const labelKey = normalizeText(label);
+
+    if (!label || !value || (duplicateCounts.get(labelKey) || 0) < 2) {
+      return option;
+    }
+
+    return {
+      ...option,
+      label: `${label} (${value})`
+    };
+  });
 }
 
 function matchesPeriod(timestamp, filters) {
@@ -417,6 +537,7 @@ function buildEventDetails(event, category) {
   } else if (category === 'movement' || category === 'transplant') {
     push('Откуда', get('previousLocation'));
     push('Куда', get('nextLocation'));
+    push('Комментарий', get('comment'));
   }
 
   const fields = [
@@ -464,15 +585,42 @@ function isQuarantineEvent(event) {
   return text.includes('карантин') || text.includes('quarantine');
 }
 
-function normalizePhotoUrls(report, event) {
-  const values = [event && event.photos, event && event.photoFiles, event && event.photoPaths, event && event.photoUri, event && event.photoUris]
-    .flatMap((value) => Array.isArray(value) ? value : [value])
-    .filter((value) => typeof value === 'string' && value.trim());
+function normalizePhotoUrls(report, event, rawEvent) {
+  const values = collectPhotoAliases([
+    event && event.photos,
+    event && event.photoFiles,
+    event && event.photoPath,
+    event && event.photoPaths,
+    event && event.photoUri,
+    event && event.photoUris,
+    rawEvent && rawEvent.photos,
+    rawEvent && rawEvent.photoFiles,
+    rawEvent && rawEvent.photoPath,
+    rawEvent && rawEvent.photoPaths,
+    rawEvent && rawEvent.photoUri,
+    rawEvent && rawEvent.photoUris
+  ]);
   return [...new Set(values.map((photo) => photo.includes('://') ? photo : report && typeof report.getPhotoUrl === 'function' ? report.getPhotoUrl(photo) : '').filter(Boolean))];
 }
 
 function isImportantEvent(event, category) {
-  return ['problems', 'losses', 'sales'].includes(category) || /critical|высок/i.test(`${readEventField(event, 'riskLevel')} ${readEventField(event, 'risk')}`);
+  return ['problems', 'losses', 'sales'].includes(category) || /critical|\u0432\u044b\u0441\u043e\u043a/i.test(`${readEventField(event, 'riskLevel')} ${readEventField(event, 'risk')}`);
+}
+
+function hasProblemSignals(event) {
+  const type = normalizeType(event);
+  if (['problem', 'contamination', 'quarantine', 'quarantinereleased', 'greenhousedisease'].includes(type)) return true;
+
+  return Boolean(
+    readEventField(event, 'problemType')
+    || readEventField(event, 'problem')
+    || readEventField(event, 'riskLevel')
+    || readEventField(event, 'risk')
+    || readEventField(event, 'problemDescription')
+    || readEventField(event, 'diseaseName')
+    || readEventField(event, 'pestName')
+    || readEventField(event, 'quarantineReason')
+  );
 }
 
 function readEventField(event, key) {
@@ -510,8 +658,75 @@ function isUnknownAuthor(value) {
   return UNKNOWN_AUTHOR_VALUES.has(normalizeText(value));
 }
 
+function buildBatchKey(report = {}, cardId = '') {
+  const source = String(report.deviceId || `report:${String(report.reportId || 'unknown-report').trim()}`).trim();
+  return `${source}::${String(cardId || '').trim()}`.toLowerCase();
+}
+
+function mergeSnapshotEntity(parsed, raw) {
+  const merged = isPlainObject(parsed) ? { ...parsed } : {};
+
+  for (const [key, value] of Object.entries(isPlainObject(raw) ? raw : {})) {
+    if (typeof value === 'string') {
+      if (value.trim()) merged[key] = value;
+      continue;
+    }
+    if (Array.isArray(value)) {
+      if (hasMeaningfulValue(value)) merged[key] = value;
+      continue;
+    }
+    if (isPlainObject(value)) {
+      const nested = mergeSnapshotEntity(isPlainObject(merged[key]) ? merged[key] : {}, value);
+      if (Object.keys(nested).length) merged[key] = nested;
+      continue;
+    }
+    if (value !== undefined && value !== null) merged[key] = value;
+  }
+
+  return merged;
+}
+
+function collectPhotoAliases(values) {
+  const result = [];
+  for (const value of Array.isArray(values) ? values : [values]) {
+    if (Array.isArray(value)) {
+      result.push(...collectPhotoAliases(value));
+      continue;
+    }
+    if (typeof value === 'string' && value.trim()) {
+      result.push(value.trim());
+      continue;
+    }
+    if (value && typeof value === 'object') {
+      result.push(...collectPhotoAliases([
+        value.photoPath,
+        value.photoUri,
+        value.path,
+        value.uri,
+        value.photoFiles,
+        value.photoPaths,
+        value.photoUris
+      ]));
+    }
+  }
+  return [...new Set(result)];
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function hasMeaningfulValue(value) {
+  if (typeof value === 'string') return Boolean(value.trim());
+  if (Array.isArray(value)) return value.some((item) => hasMeaningfulValue(item));
+  if (isPlainObject(value)) return Object.values(value).some((item) => hasMeaningfulValue(item));
+  return value !== undefined && value !== null;
+}
+
 function toDate(value) {
-  const date = new Date(value || 0);
+  if (value === undefined || value === null) return null;
+  if (typeof value === 'string' && !value.trim()) return null;
+  const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
 }
 

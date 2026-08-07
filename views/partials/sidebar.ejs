@@ -18,7 +18,7 @@
         <span>Главная</span>
       </a>
     <% } else { %>
-      <a class="sidebar-item active" href="/">
+      <a class="sidebar-item <%= activePage === 'upload' ? '' : 'active' %>" href="/">
         <span class="sidebar-item-icon">🏠</span>
         <span>Главная</span>
       </a>
@@ -51,12 +51,15 @@
       <span class="sidebar-item-icon">⬇️</span>
       <span>Экспорт</span>
     </span>
-    <form action="/admin/reports/clear" method="post" class="sidebar-clear-form" onsubmit="return confirm('Очистить все отчеты? Это действие нельзя отменить.');">
-      <button type="submit" class="sidebar-item sidebar-item-danger">
-        <span class="sidebar-item-icon">⟲</span>
-        <span>Очистить отчеты</span>
-      </button>
-    </form>
+    <% if (showDashboardLink) { %>
+      <form action="/admin/reports/clear" method="post" class="sidebar-clear-form" onsubmit="return confirm('Очистить все отчеты? Это действие нельзя отменить.');">
+        <input type="hidden" name="confirm" value="clear-all" />
+        <button type="submit" class="sidebar-item sidebar-item-danger">
+          <span class="sidebar-item-icon">⟲</span>
+          <span>Очистить отчеты</span>
+        </button>
+      </form>
+    <% } %>
   </nav>
 
   <section class="sidebar-card">
@@ -65,7 +68,7 @@
       <div class="sidebar-user-copy">
         <strong>Локальный режим</strong>
         <p>Без авторизации, без API, только файловое хранение.</p>
-        <a href="#" class="sidebar-more">Подробнее</a>
+        <button type="button" class="sidebar-more">Подробнее</button>
       </div>
     </div>
   </section>

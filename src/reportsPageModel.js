@@ -1,33 +1,42 @@
+const { formatCountLabel } = require('./formatCountLabel');
+
+const UNKNOWN_EMPLOYEE = 'Неизвестно';
+const REPORT_LABELS = ['отчет', 'отчета', 'отчетов'];
+const CARD_LABELS = ['карточка', 'карточки', 'карточек'];
+const EVENT_LABELS = ['событие', 'события', 'событий'];
+const PHOTO_LABELS = ['фотография', 'фотографии', 'фотографий'];
+
 function buildReportsPageModel(reports = [], query = {}) {
   const groups = new Map();
   const reportList = Array.isArray(reports) ? reports : [];
+  const resolveEmployeeKey = buildReportEmployeeKeyResolver(reportList);
 
   for (const report of reportList) {
-    const employeeLabel = resolveReportEmployee(report);
-    const employeeKey = normalizeEmployeeKey(employeeLabel);
+    const employeeLabel = resolveReportEmployeeName(report);
+    const employeeKey = resolveEmployeeKey(report);
     const group = ensureEmployeeGroup(groups, employeeKey, employeeLabel);
-    const summary = report && report.summary ? report.summary : {};
+    const counts = resolveReportCounts(report);
     const createdAtMs = toDateMs(report && report.createdAt);
 
-    group.cardsCount += toCount(summary.cardsCount);
-    group.eventsCount += toCount(summary.eventsCount);
-    group.photosCount += toCount(summary.photosCount);
+    group.cardsCount += counts.cardsCount;
+    group.eventsCount += counts.eventsCount;
+    group.photosCount += counts.photosCount;
     if (createdAtMs >= group.latestReportCreatedAtMs) {
       group.latestReportCreatedAtMs = createdAtMs;
-      group.latestReportDate = report && report.displayCreatedAt ? report.displayCreatedAt : group.latestReportDate;
+      group.latestReportDate = report && report.displayCreatedAt ? report.displayCreatedAt : '';
     }
     group.reports.push({
       reportId: report && report.reportId ? report.reportId : '',
       displayCreatedAt: report && report.displayCreatedAt ? report.displayCreatedAt : '',
       createdAtMs,
-      cardsCount: toCount(summary.cardsCount),
-      eventsCount: toCount(summary.eventsCount),
-      photosCount: toCount(summary.photosCount),
+      cardsCount: counts.cardsCount,
+      eventsCount: counts.eventsCount,
+      photosCount: counts.photosCount,
       author: employeeLabel
     });
   }
 
-  const employees = [...groups.values()]
+  const employees = disambiguateEmployeeLabels([...groups.values()]
     .sort((left, right) => {
       if (right.latestReportCreatedAtMs !== left.latestReportCreatedAtMs) {
         return right.latestReportCreatedAtMs - left.latestReportCreatedAtMs;
@@ -37,14 +46,24 @@ function buildReportsPageModel(reports = [], query = {}) {
     })
     .map((employee) => ({
       ...employee,
-      searchText: buildEmployeeSearchText(employee.label),
+      baseLabel: employee.label,
+      baseSearchText: normalizeLookupText(employee.label),
+      searchText: normalizeLookupText(employee.label),
+      reportCountLabel: formatCountLabel(employee.reports.length, REPORT_LABELS),
+      cardsCountLabel: formatCountLabel(employee.cardsCount, CARD_LABELS),
+      eventsCountLabel: formatCountLabel(employee.eventsCount, EVENT_LABELS),
+      photosCountLabel: formatCountLabel(employee.photosCount, PHOTO_LABELS),
       reports: employee.reports.sort((left, right) => right.createdAtMs - left.createdAtMs)
-    }));
+    })));
 
-  const requestedEmployeeKey = normalizeEmployeeKey(query.employee);
+  const requestedEmployeeKey = normalizeLookupText(query.employee);
   const selectedEmployee = requestedEmployeeKey
-    ? employees.find((employee) => employee.key === requestedEmployeeKey) || null
-    : null;
+    ? employees.find((employee) => employee.key === requestedEmployeeKey)
+      || employees.find((employee) => employee.searchText === requestedEmployeeKey)
+      || employees.find((employee) => employee.baseSearchText === requestedEmployeeKey)
+      || employees[0]
+      || null
+    : employees[0] || null;
 
   return {
     employees,
@@ -60,8 +79,17 @@ function buildSelectedEmployeeDetail(employee, reports = []) {
     return null;
   }
 
+  const employeeKey = normalizeLookupText(employee.key || employee.label);
+  const resolveEmployeeKey = buildReportEmployeeKeyResolver(reports);
   const detailedReports = Array.isArray(reports)
-    ? reports.filter(Boolean).sort((left, right) => toDateMs(right && right.createdAt) - toDateMs(left && left.createdAt))
+    ? reports
+      .filter(Boolean)
+      .filter((report) => {
+        const reportKey = resolveEmployeeKey(report);
+        const reportSearchText = normalizeLookupText(resolveReportEmployeeName(report));
+        return reportKey === employeeKey || reportSearchText === employeeKey;
+      })
+      .sort((left, right) => toDateMs(right && right.createdAt) - toDateMs(left && left.createdAt))
     : [];
   const cards = buildUniqueEmployeeCards(detailedReports);
 
@@ -85,9 +113,11 @@ function buildUniqueEmployeeCards(reports = []) {
   const cardMap = new Map();
 
   reports.forEach((report) => {
-    const cards = Array.isArray(report && report.cards) ? report.cards : [];
+    const parsedCards = Array.isArray(report && report.cards) ? report.cards : [];
+    const rawCards = Array.isArray(report && report.raw && report.raw.cards) ? report.raw.cards : [];
 
-    cards.forEach((card, index) => {
+    Array.from({ length: Math.max(parsedCards.length, rawCards.length) }, (_, index) => {
+      const card = mergeCardSnapshot(parsedCards[index], rawCards[index]);
       const normalizedCard = decorateEmployeeCard(card, report, index);
       const key = normalizedCard.aggregateKey;
       const existing = cardMap.get(key);
@@ -119,7 +149,7 @@ function decorateEmployeeCard(card, report, index) {
     toDateMs(card && card.createdAt),
     toDateMs(report && report.createdAt)
   );
-  const aggregateKey = normalizeCardKey(
+  const aggregateKey = normalizeLookupText(
     firstValue([
       card && card.cardId,
       card && card.code,
@@ -154,29 +184,211 @@ function ensureEmployeeGroup(groups, employeeKey, employeeLabel) {
   return groups.get(employeeKey);
 }
 
-function resolveReportEmployee(report) {
+function disambiguateEmployeeLabels(employees = []) {
+  const duplicateCounts = new Map();
+
+  for (const employee of employees) {
+    const labelKey = normalizeLookupText(employee && employee.label);
+    if (!labelKey) continue;
+    duplicateCounts.set(labelKey, (duplicateCounts.get(labelKey) || 0) + 1);
+  }
+
+  return employees.map((employee) => {
+    const label = String(employee && employee.label || '').trim();
+    const key = String(employee && employee.key || '').trim();
+    const labelKey = normalizeLookupText(label);
+
+    if (!label || !key || (duplicateCounts.get(labelKey) || 0) < 2) {
+      return employee;
+    }
+
+    return {
+      ...employee,
+      label: `${label} (${key})`
+    };
+  });
+}
+
+function resolveReportEmployeeName(report) {
   if (!report) {
-    return 'Неизвестно';
+    return UNKNOWN_EMPLOYEE;
   }
 
   const user = report.user || {};
-  const userName = user.displayName || [user.firstName, user.lastName].filter(Boolean).join(' ').trim();
-  return userName || report.author || report.userName || 'Неизвестно';
+  const displayName = String(user.displayName || '').trim();
+  const fullName = [user.firstName, user.lastName].filter(Boolean).join(' ').trim();
+  const author = String(report.author || '').trim();
+  const userName = String(report.userName || '').trim();
+  return displayName || fullName || author || userName || UNKNOWN_EMPLOYEE;
 }
 
-function normalizeEmployeeKey(value) {
-  return String(value || '')
-    .trim()
-    .toLowerCase();
+function resolveReportEmployeeIdentity(report) {
+  if (!report) {
+    return normalizeLookupText(UNKNOWN_EMPLOYEE);
+  }
+
+  const user = report.user || {};
+  return normalizeLookupText(firstValue([
+    user.userId,
+    resolveReportEmployeeName(report),
+    report.author,
+    report.userName
+  ]));
 }
 
-function buildEmployeeSearchText(label) {
-  return String(label || '')
-    .trim()
-    .toLowerCase();
+function buildReportEmployeeKeyResolver(reports = []) {
+  const identitiesByName = new Map();
+  const reportList = Array.isArray(reports) ? reports : [];
+
+  for (const report of reportList) {
+    const nameKey = normalizeLookupText(resolveReportEmployeeName(report));
+    const identityKey = resolveReportEmployeeIdentity(report);
+    if (!nameKey) continue;
+    const identities = identitiesByName.get(nameKey) || new Set();
+    if (identityKey) identities.add(identityKey);
+    identitiesByName.set(nameKey, identities);
+  }
+
+  return function resolveReportEmployeeKeyFromList(report) {
+    const nameKey = normalizeLookupText(resolveReportEmployeeName(report));
+    const identityKey = resolveReportEmployeeIdentity(report);
+    const identities = identitiesByName.get(nameKey);
+
+    if (identities && identities.size > 1 && identityKey) {
+      return identityKey;
+    }
+
+    return nameKey || identityKey || normalizeLookupText('unknown');
+  };
 }
 
-function normalizeCardKey(value) {
+function resolveReportEmployeeKey(report, reports = []) {
+  return buildReportEmployeeKeyResolver(reports)(report);
+}
+
+function resolveReportCounts(report) {
+  const summary = report && report.summary ? report.summary : {};
+  const parsedCards = Array.isArray(report && report.cards) ? report.cards : [];
+  const rawCards = Array.isArray(report && report.raw && report.raw.cards) ? report.raw.cards : [];
+  const cards = Array.from(
+    { length: Math.max(parsedCards.length, rawCards.length) },
+    (_, index) => mergeCardSnapshot(parsedCards[index], rawCards[index])
+  );
+  const derivedCardsCount = cards.length;
+  const derivedEventsCount = cards.reduce(
+    (total, card) => total + (Array.isArray(card && card.events) ? card.events.length : 0),
+    0
+  );
+  const derivedPhotosCount = cards.reduce((total, card) => {
+    const events = Array.isArray(card && card.events) ? card.events : [];
+    const cardPhotos = collectPhotoValues(card).length;
+    const eventPhotos = events.reduce((eventTotal, event) => eventTotal + collectPhotoValues(event).length, 0);
+    return total + cardPhotos + eventPhotos;
+  }, 0);
+
+  return {
+    cardsCount: readCount(summary.cardsCount, derivedCardsCount),
+    eventsCount: readCount(summary.eventsCount, derivedEventsCount),
+    photosCount: readCount(summary.photosCount, derivedPhotosCount)
+  };
+}
+
+function readCount(value, fallback) {
+  if (value === undefined || value === null || value === '') {
+    return fallback;
+  }
+
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function collectPhotoValues(source) {
+  const values = new Set();
+  [
+    source && source.photos,
+    source && source.photoFiles,
+    source && source.photoPath,
+    source && source.photoPaths,
+    source && source.photoUri,
+    source && source.photoUris
+  ].forEach((value) => collectPhotoAliases(value, values));
+  return [...values];
+}
+
+function collectPhotoAliases(value, target) {
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectPhotoAliases(item, target));
+    return;
+  }
+
+  if (typeof value === 'string' && value.trim()) {
+    target.add(value.trim());
+    return;
+  }
+
+  if (value && typeof value === 'object') {
+    collectPhotoAliases(value.photoPath, target);
+    collectPhotoAliases(value.photoUri, target);
+    collectPhotoAliases(value.path, target);
+    collectPhotoAliases(value.uri, target);
+  }
+}
+
+function mergeCardSnapshot(parsedCard, rawCard) {
+  const mergedCard = mergeSnapshotEntity(parsedCard, rawCard);
+  const parsedEvents = Array.isArray(parsedCard && parsedCard.events) ? parsedCard.events : [];
+  const rawEvents = Array.isArray(rawCard && rawCard.events) ? rawCard.events : [];
+  mergedCard.events = Array.from(
+    { length: Math.max(parsedEvents.length, rawEvents.length) },
+    (_, eventIndex) => mergeSnapshotEntity(parsedEvents[eventIndex], rawEvents[eventIndex])
+  );
+  return mergedCard;
+}
+
+function mergeSnapshotEntity(parsed, raw) {
+  const merged = isPlainObject(parsed) ? { ...parsed } : {};
+
+  for (const [key, value] of Object.entries(isPlainObject(raw) ? raw : {})) {
+    if (typeof value === 'string') {
+      if (value.trim()) merged[key] = value;
+      continue;
+    }
+    if (Array.isArray(value)) {
+      if (hasMeaningfulValue(value)) merged[key] = value;
+      continue;
+    }
+    if (isPlainObject(value)) {
+      const nested = mergeSnapshotEntity(isPlainObject(merged[key]) ? merged[key] : {}, value);
+      if (Object.keys(nested).length) merged[key] = nested;
+      continue;
+    }
+    if (value !== undefined && value !== null) merged[key] = value;
+  }
+
+  return merged;
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function hasMeaningfulValue(value) {
+  if (typeof value === 'string') {
+    return Boolean(value.trim());
+  }
+
+  if (Array.isArray(value)) {
+    return value.some((item) => hasMeaningfulValue(item));
+  }
+
+  if (isPlainObject(value)) {
+    return Object.values(value).some((item) => hasMeaningfulValue(item));
+  }
+
+  return value !== undefined && value !== null;
+}
+
+function normalizeLookupText(value) {
   return String(value || '')
     .trim()
     .toLowerCase();
@@ -198,11 +410,6 @@ function firstValue(values) {
   return '';
 }
 
-function toCount(value) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : 0;
-}
-
 function toDateMs(value) {
   const date = value ? new Date(value) : null;
   return date && !Number.isNaN(date.getTime()) ? date.getTime() : 0;
@@ -210,5 +417,6 @@ function toDateMs(value) {
 
 module.exports = {
   buildReportsPageModel,
-  buildSelectedEmployeeDetail
+  buildSelectedEmployeeDetail,
+  resolveReportEmployeeKey
 };

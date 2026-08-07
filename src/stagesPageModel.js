@@ -8,78 +8,65 @@ const STAGE_ORDER = [
 ];
 
 const STAGE_LABELS = Object.fromEntries(STAGE_ORDER.map((stage) => [stage, stage]));
+const STAGE_ALIASES = {
+  introduction: STAGE_ORDER[0],
+  initiation: STAGE_ORDER[0],
+  'introduction to culture': STAGE_ORDER[0],
+  cloning: STAGE_ORDER[1],
+  propagation: STAGE_ORDER[1],
+  adaptation: STAGE_ORDER[2],
+  acclimatization: STAGE_ORDER[2],
+  greenhouse: STAGE_ORDER[3],
+  hardening: STAGE_ORDER[4],
+  planting: STAGE_ORDER[5],
+  transplanting: STAGE_ORDER[5]
+};
+const STAGE_KEYS = new Map([
+  ...STAGE_ORDER.map((stage) => [normalizeText(stage), stage]),
+  ...Object.entries(STAGE_ALIASES).map(([alias, stage]) => [normalizeText(alias), stage])
+]);
 
-function buildStagesPageModel(reports = [], query = {}) {
-  const cards = buildBatchCatalog(reports);
-  const search = String(query.q || '').trim();
-  const requestedStage = String(query.stage || '').trim();
-  const stage = requestedStage === 'all' || STAGE_ORDER.includes(requestedStage) ? (requestedStage || 'all') : 'all';
-  const employeeOptions = buildEmployeeOptions(cards);
-  const requestedEmployee = String(query.employee || '').trim();
-  const employee = employeeOptions.some((item) => item.key === requestedEmployee) ? requestedEmployee : 'all';
-  const filteredCards = cards.filter((card) => {
-    const matchesStage = !stage || stage === 'all' || card.stage === stage;
-    const matchesEmployee = employee === 'all' || card.employeeKey === employee;
-    const matchesSearch = !search || card.searchText.includes(search.toLowerCase());
-    return matchesStage && matchesEmployee && matchesSearch;
-  });
-  const requestedBatchKey = String(query.batchId || '').trim();
-  const requestedCardId = String(query.cardId || '').trim();
-  const selectedTab = ['passport', 'journal'].includes(String(query.tab || '').trim())
-    ? String(query.tab).trim()
-    : 'journal';
-  const highlightedEventId = String(query.eventId || '').trim();
-  const selectedCard = filteredCards.find((card) => card.batchKey === requestedBatchKey)
-    || (!requestedBatchKey && filteredCards.find((card) => card.cardId === requestedCardId))
-    || null;
-
-  return {
-    pageTitle: 'Партии',
-    search,
-    selectedStage: stage || 'all',
-    selectedEmployee: employee,
-    selectedCardId: selectedCard ? selectedCard.cardId : '',
-    selectedBatchKey: selectedCard ? selectedCard.batchKey : '',
-    selectedTab,
-    highlightedEventId,
-    cards: filteredCards,
-    selectedCard,
-    stages: [
-      { key: 'all', label: 'Все партии', count: cards.length },
-      ...STAGE_ORDER.map((key) => ({
-        key,
-        label: STAGE_LABELS[key],
-        count: cards.filter((card) => card.stage === key).length
-      }))
-    ],
-    employees: employeeOptions
-  };
+function canonicalizeStage(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  return STAGE_KEYS.get(normalizeText(text)) || text;
 }
 
-function buildEmployeeOptions(cards) {
-  const employees = new Map();
-  cards.forEach((card) => {
-    if (!card.employeeKey || !card.employeeName) return;
-    const employee = employees.get(card.employeeKey) || { key: card.employeeKey, label: card.employeeName, count: 0 };
-    employee.count += 1;
-    employees.set(card.employeeKey, employee);
-  });
+function disambiguateEmployeeOptions(employees = []) {
+  const duplicateCounts = new Map();
 
-  return [
-    { key: 'all', label: 'Все сотрудники', count: cards.length },
-    ...[...employees.values()].sort((a, b) => a.label.localeCompare(b.label, 'ru'))
-  ];
+  for (const employee of employees) {
+    const labelKey = normalizeText(employee && employee.label);
+    if (!labelKey) continue;
+    duplicateCounts.set(labelKey, (duplicateCounts.get(labelKey) || 0) + 1);
+  }
+
+  return employees.map((employee) => {
+    const label = String(employee && employee.label || '').trim();
+    const key = String(employee && employee.key || '').trim();
+    const labelKey = normalizeText(label);
+
+    if (!label || !key || (duplicateCounts.get(labelKey) || 0) < 2) {
+      return employee;
+    }
+
+    return {
+      ...employee,
+      label: `${label} (${key})`
+    };
+  });
 }
 
 function buildBatchCatalog(reports) {
   const byKey = new Map();
   for (const report of Array.isArray(reports) ? reports : []) {
+    const parsedCards = Array.isArray(report && report.cards) ? report.cards : [];
     const rawCards = Array.isArray(report && report.raw && report.raw.cards)
       ? report.raw.cards
-      : Array.isArray(report && report.cards) ? report.cards : [];
-    rawCards.forEach((rawCard, index) => {
-      const parsedCard = report.cards && report.cards[index] ? report.cards[index] : {};
-      const cardId = String(rawCard.cardId || parsedCard.cardId || rawCard.code || parsedCard.code || `${report.reportId}-${index + 1}`);
+      : parsedCards;
+    Array.from({ length: Math.max(rawCards.length, parsedCards.length) }, (_, index) => {
+      const rawCard = rawCards[index] || {};
+      const parsedCard = parsedCards[index] || {};
       const normalized = normalizeCard(rawCard, parsedCard, report, index);
       const existing = byKey.get(normalized.batchKey);
       if (!existing || normalized.snapshotAt >= existing.snapshotAt) {
@@ -99,27 +86,101 @@ function buildBatchCatalog(reports) {
 }
 
 function normalizeCard(raw, parsed, report, index) {
-  const titleParts = [raw.cultureName || parsed.culture, raw.speciesName, raw.varietyName || parsed.variety || parsed.sort].filter(isVisiblePlantPart);
-  const events = Array.isArray(raw.events) ? raw.events : Array.isArray(parsed.events) ? parsed.events : [];
+  const cultureName = firstVisiblePlantValue(
+    raw.cultureName,
+    raw.culture,
+    raw.crop,
+    raw.plant,
+    parsed.cultureName,
+    parsed.culture,
+    parsed.crop,
+    parsed.plant
+  );
+  const speciesName = firstVisiblePlantValue(
+    raw.speciesName,
+    raw.sort,
+    raw.grade,
+    parsed.speciesName,
+    parsed.sort,
+    parsed.grade
+  );
+  const varietyName = firstVisiblePlantValue(
+    raw.varietyName,
+    raw.variety,
+    raw.cultivar,
+    parsed.varietyName,
+    parsed.variety,
+    parsed.cultivar
+  );
+  const titleParts = [cultureName, speciesName, varietyName].filter(isVisiblePlantPart);
+  const rawEvents = Array.isArray(raw.events) ? raw.events : [];
+  const parsedEvents = Array.isArray(parsed.events) ? parsed.events : [];
+  const events = Array.from({ length: Math.max(rawEvents.length, parsedEvents.length) }, (_, eventIndex) => mergeSnapshotEntity(
+    parsedEvents[eventIndex] || {},
+    rawEvents[eventIndex] || {}
+  ));
   const snapshotAt = resolveSnapshotAt(raw, parsed, report, events);
-  const currentQuantity = raw.currentQuantity ?? raw.currentCount ?? raw.remainingCount ?? parsed.currentCount ?? raw.quantity ?? parsed.initialCount;
-  const initialQuantity = raw.initialQuantity ?? raw.initialCount ?? raw.quantity ?? parsed.initialCount;
-  const stage = String(raw.stage || parsed.stage || '').trim() || 'Без стадии';
+  const currentQuantity = firstDefinedValue(
+    raw.currentQuantity,
+    raw.currentCount,
+    raw.remainingCount,
+    parsed.currentQuantity,
+    parsed.currentCount,
+    raw.quantity,
+    parsed.quantity,
+    parsed.initialQuantity,
+    parsed.initialCount
+  );
+  const initialQuantity = firstDefinedValue(
+    raw.initialQuantity,
+    raw.initialCount,
+    parsed.initialQuantity,
+    raw.quantity,
+    parsed.quantity,
+    parsed.initialCount
+  );
+  const stage = canonicalizeStage(raw.stage || parsed.stage) || 'Без стадии';
   const status = String(raw.batchStatus || raw.status || parsed.status || 'Не указан').trim();
-  const statusLabel = formatBatchStatus(status);
-  const sterilityStatus = String(raw.sterilityStatus || parsed.sterilityStatus || '').trim();
-  const location = raw.locationDescription || raw.location || raw.place || parsed.location || '';
-  const problemType = raw.problemType || raw.problem || parsed.problemType || parsed.problem || '';
-  const riskLevel = raw.riskLevel || raw.risk || parsed.riskLevel || parsed.risk || '';
-  const activeProblemQuantity = raw.activeProblemQuantity ?? parsed.activeProblemQuantity ?? '';
-  const healthyQuantity = raw.healthyQuantity ?? parsed.healthyQuantity ?? '';
-  const sourceQuantity = raw.sourceQuantity ?? parsed.sourceQuantity ?? '';
-  const propagationQuantity = raw.propagationQuantity ?? parsed.propagationQuantity ?? '';
+  const sterilityStatus = firstValue([raw.sterilityStatus, parsed.sterilityStatus]);
+  const location = firstDefinedValue(
+    raw.locationDescription,
+    raw.location,
+    raw.place,
+    raw.position,
+    parsed.locationDescription,
+    parsed.location,
+    parsed.place,
+    parsed.position
+  ) || '';
+  const rawExtraFields = raw.extraFields && typeof raw.extraFields === 'object' ? raw.extraFields : {};
+  const parsedExtraFields = parsed.extraFields && typeof parsed.extraFields === 'object' ? parsed.extraFields : {};
+  const problemType = firstValue([raw.problemType, raw.problem, rawExtraFields.problemType, rawExtraFields.problem, parsed.problemType, parsed.problem, parsedExtraFields.problemType, parsedExtraFields.problem]);
+  const riskLevel = firstValue([raw.riskLevel, raw.risk, rawExtraFields.riskLevel, rawExtraFields.risk, parsed.riskLevel, parsed.risk, parsedExtraFields.riskLevel, parsedExtraFields.risk]);
+  const problemDescription = firstValue([
+    raw.problemDescription,
+    rawExtraFields.problemDescription,
+    raw.diseaseName,
+    raw.pestName,
+    rawExtraFields.diseaseName,
+    rawExtraFields.pestName,
+    rawExtraFields.quarantineReason,
+    parsed.problemDescription,
+    parsedExtraFields.problemDescription,
+    parsed.diseaseName,
+    parsed.pestName,
+    parsedExtraFields.diseaseName,
+    parsedExtraFields.pestName,
+    parsedExtraFields.quarantineReason
+  ]);
+  const activeProblemQuantity = firstDefinedValue(raw.activeProblemQuantity, parsed.activeProblemQuantity, '');
+  const healthyQuantity = firstDefinedValue(raw.healthyQuantity, parsed.healthyQuantity, '');
+  const sourceQuantity = firstDefinedValue(raw.sourceQuantity, parsed.sourceQuantity, '');
+  const propagationQuantity = firstDefinedValue(raw.propagationQuantity, parsed.propagationQuantity, '');
   const originType = raw.originType || parsed.originType || '';
   const parentCardId = raw.parentCardId || parsed.parentCardId || '';
   const parentCode = raw.parentCode || parsed.parentCode || '';
   const sourceEventId = raw.sourceEventId || parsed.sourceEventId || '';
-  const generation = raw.generation ?? parsed.generation ?? '';
+  const generation = firstDefinedValue(raw.generation, parsed.generation, '');
   const propagatedAt = raw.propagatedAt || parsed.propagatedAt || '';
   const propagationMethod = raw.propagationMethod || parsed.propagationMethod || '';
   const stageChangedAt = raw.stageChangedAt || parsed.stageChangedAt || '';
@@ -127,17 +188,37 @@ function normalizeCard(raw, parsed, report, index) {
   const cardId = String(raw.cardId || parsed.cardId || code);
   const qrStatus = raw.qrStatus || parsed.qrStatus || (raw.qrPrinted || parsed.qrPrinted ? 'printed' : code ? 'pending_print' : 'none');
   const deviceId = String(report.deviceId || '').trim();
-  const employeeName = String(report && report.user && (report.user.displayName || [report.user.firstName, report.user.lastName].filter(Boolean).join(' ')) || '').trim() || 'Сотрудник не указан';
-  const employeeKey = String(report && report.user && (report.user.userId || report.user.displayName) || '').trim().toLowerCase();
+  const reportUser = report && report.user ? report.user : {};
+  const employeeDisplayName = String(reportUser.displayName || '').trim();
+  const employeeFullName = [reportUser.firstName, reportUser.lastName].filter(Boolean).join(' ').trim();
+  const reportAuthor = String(report && report.author || '').trim();
+  const reportUserName = String(report && report.userName || '').trim();
+  const employeeName = employeeDisplayName || employeeFullName || reportAuthor || reportUserName || 'Неизвестно';
+  const employeeKey = normalizeText(reportUser.userId || employeeDisplayName || employeeFullName || reportAuthor || reportUserName || employeeName);
+  const effectiveStage = canonicalizeStage(firstValue([raw.stage, parsed.stage])) || stage;
+  const effectiveStatus = firstValue([raw.batchStatus, raw.status, parsed.batchStatus, parsed.status]) || status;
+  const effectiveStatusLabel = formatBatchStatus(effectiveStatus);
+  const effectiveOriginType = firstValue([raw.originType, parsed.originType]) || originType;
+  const effectiveParentCardId = firstValue([raw.parentCardId, parsed.parentCardId]) || parentCardId;
+  const effectiveParentCode = firstValue([raw.parentCode, parsed.parentCode]) || parentCode;
+  const effectiveSourceEventId = firstValue([raw.sourceEventId, parsed.sourceEventId]) || sourceEventId;
+  const effectivePropagatedAt = firstValue([raw.propagatedAt, parsed.propagatedAt]) || propagatedAt;
+  const effectivePropagationMethod = firstValue([raw.propagationMethod, parsed.propagationMethod]) || propagationMethod;
+  const effectiveStageChangedAt = firstValue([raw.stageChangedAt, parsed.stageChangedAt]) || stageChangedAt;
+  const effectiveQrStatus = firstValue([raw.qrStatus, parsed.qrStatus]) || qrStatus;
+  const effectiveCancelledAt = raw.cancelledAt || parsed.cancelledAt || '';
+  const effectiveCreatedAt = raw.createdAt || parsed.createdAt || report.createdAt;
+  const effectiveUpdatedAt = raw.updatedAt || parsed.updatedAt || raw.createdAt || parsed.createdAt || report.createdAt;
+  const effectiveDaysInStage = getDaysInCurrentStage(stageChangedAt || raw.createdAt || parsed.createdAt || report.createdAt);
   const batchKey = buildBatchKey(deviceId, cardId, report.reportId);
   const eventContext = {
     ...parsed,
     ...raw,
-    stage,
+    stage: effectiveStage,
     quantity: raw.quantity ?? parsed.quantity ?? initialQuantity ?? currentQuantity,
     currentQuantity,
     initialQuantity,
-    qrStatus
+    qrStatus: effectiveQrStatus
   };
   const eventList = events.map((event) => normalizeEvent(event, report, eventContext));
 
@@ -147,44 +228,62 @@ function normalizeCard(raw, parsed, report, index) {
     deviceId,
     code,
     title: titleParts.length ? titleParts.join(' · ') : code,
-    culture: isVisiblePlantPart(raw.cultureName || parsed.culture) ? raw.cultureName || parsed.culture : '',
-    species: isVisiblePlantPart(raw.speciesName) ? raw.speciesName : '',
-    variety: isVisiblePlantPart(raw.varietyName || parsed.variety || parsed.sort) ? raw.varietyName || parsed.variety || parsed.sort : '',
-    stage,
-    status,
-    statusLabel,
+    culture: cultureName,
+    species: speciesName,
+    variety: varietyName,
+    stage: effectiveStage,
+    status: effectiveStatus,
+    statusLabel: effectiveStatusLabel,
     sterilityStatus,
     problemType,
     riskLevel,
+    problemDescription,
     activeProblemQuantity,
     healthyQuantity,
     sourceQuantity,
     propagationQuantity,
-    originType,
-    parentCardId,
-    parentCode,
-    sourceEventId,
+    originType: effectiveOriginType,
+    parentCardId: effectiveParentCardId,
+    parentCode: effectiveParentCode,
+    sourceEventId: effectiveSourceEventId,
     generation,
-    propagatedAt,
-    propagationMethod,
-    stageChangedAt,
-    cancelledAt: raw.cancelledAt || '',
+    propagatedAt: effectivePropagatedAt,
+    propagationMethod: effectivePropagationMethod,
+    stageChangedAt: effectiveStageChangedAt,
+    cancelledAt: effectiveCancelledAt,
     currentQuantity,
     initialQuantity,
     totalQuantityLabel: formatQuantityDisplay(currentQuantity, initialQuantity),
     location,
-    qrStatus,
-    qrStatusLabel: formatQrStatus(qrStatus),
-    daysInStage: getDaysInCurrentStage(stageChangedAt || raw.createdAt || report.createdAt),
-    createdAt: raw.createdAt || report.createdAt,
-    updatedAt: raw.updatedAt || raw.createdAt || report.createdAt,
+    qrStatus: effectiveQrStatus,
+    qrStatusLabel: formatQrStatus(effectiveQrStatus),
+    daysInStage: effectiveDaysInStage,
+    createdAt: effectiveCreatedAt,
+    updatedAt: effectiveUpdatedAt,
     snapshotAt,
     reportId: report.reportId,
     employeeName,
     employeeKey,
     events: eventList,
-    photoFiles: uniqueStrings([...(raw.photoFiles || []), ...(raw.photos || [])]),
-    searchText: [cardId, code, deviceId, ...titleParts, stage, status, statusLabel, location, originType, parentCode, propagationMethod].join(' ').toLowerCase()
+    photoFiles: collectPhotoAliases([
+      raw.photoFiles,
+      raw.photos,
+      raw.photoPath,
+      raw.photoPaths,
+      raw.photoUri,
+      raw.photoUris,
+      raw.startPhotoUri,
+      raw.startPhotoUris,
+      parsed.photoFiles,
+      parsed.photos,
+      parsed.photoPath,
+      parsed.photoPaths,
+      parsed.photoUri,
+      parsed.photoUris,
+      parsed.startPhotoUri,
+      parsed.startPhotoUris
+    ]),
+    searchText: [cardId, code, deviceId, employeeName, ...titleParts, effectiveStage, raw.stage, parsed.stage, effectiveStatus, effectiveStatusLabel, location, effectiveOriginType, effectiveParentCode, effectivePropagationMethod].join(' ').toLowerCase()
   };
 }
 
@@ -239,6 +338,10 @@ function isVisiblePlantPart(value) {
   return text && text.toLowerCase() !== 'отсутствует';
 }
 
+function firstVisiblePlantValue(...values) {
+  return values.find(isVisiblePlantPart) || '';
+}
+
 function buildBatchKey(deviceId, cardId, reportId) {
   const source = deviceId || `report:${String(reportId || 'unknown-report').trim()}`;
   // The key is placed in the URL as batchId, so it must not contain control characters.
@@ -246,15 +349,25 @@ function buildBatchKey(deviceId, cardId, reportId) {
 }
 
 function normalizeEvent(event, report, cardContext = {}) {
-  const photos = uniqueStrings([...(event.photoFiles || []), ...(event.photos || []), ...(event.photoPaths || [])]);
+  const photos = collectPhotoAliases([
+    event.photoFiles,
+    event.photos,
+    event.photoPath,
+    event.photoPaths,
+    event.photoUri,
+    event.photoUris
+  ]);
   const extraFields = event.extraFields && typeof event.extraFields === 'object' ? event.extraFields : {};
   const type = String(event.type || '');
   const category = getEventCategory(event, photos.length > 0);
   const details = buildEventDetails(event, category, cardContext);
   const rawCreatedBy = firstValue([event.createdBy, event.author, event.user, event.userName]);
   const reportUser = report && report.user ? report.user : {};
-  const reportUserName = firstValue([reportUser.displayName, [reportUser.firstName, reportUser.lastName].filter(Boolean).join(' ')]);
-  const createdBy = isUnknownAuthor(rawCreatedBy) ? reportUserName : rawCreatedBy || reportUserName;
+  const reportUserId = firstValue([reportUser.userId]);
+  const reportUserName = firstValue([reportUser.displayName, [reportUser.firstName, reportUser.lastName].filter(Boolean).join(' '), report && report.author, report && report.userName]);
+  const createdBy = isUnknownAuthor(rawCreatedBy) || (reportUserId && normalizeText(rawCreatedBy) === normalizeText(reportUserId))
+    ? reportUserName
+    : rawCreatedBy || reportUserName;
   return {
     eventId: String(event.eventId || `${report && report.reportId}-${event.createdAt || event.date || event.type}`),
     title: String(event.title || event.type || 'Событие'),
@@ -288,6 +401,7 @@ function normalizeEvent(event, report, cardContext = {}) {
 
 function getEventCategory(event = {}, hasPhotos = false) {
   const type = normalizeEventType(event);
+  if (hasProblemSignals(event)) return 'problems';
   if (['problem', 'contamination', 'quarantine', 'quarantinereleased', 'greenhousedisease'].includes(type)) return 'problems';
   if (['movement', 'stagechange', 'statuschange'].includes(type)) return 'movement';
   if (['introloss', 'loss', 'death', 'discard'].includes(type)) return 'losses';
@@ -442,6 +556,22 @@ function readEventField(event, key) {
   return firstValue([event && event[key], extra[key]]);
 }
 
+function hasProblemSignals(event) {
+  const type = normalizeEventType(event);
+  if (['problem', 'contamination', 'quarantine', 'quarantinereleased', 'greenhousedisease'].includes(type)) return true;
+
+  return Boolean(
+    readEventField(event, 'problemType')
+    || readEventField(event, 'problem')
+    || readEventField(event, 'riskLevel')
+    || readEventField(event, 'risk')
+    || readEventField(event, 'problemDescription')
+    || readEventField(event, 'diseaseName')
+    || readEventField(event, 'pestName')
+    || readEventField(event, 'quarantineReason')
+  );
+}
+
 function normalizeEventType(event) {
   return String(firstValue([event && event.type, event && event.eventType, event && event.name]) || '').toLowerCase().replace(/[^a-zа-яё]/g, '');
 }
@@ -454,6 +584,18 @@ function firstValue(values) {
   return '';
 }
 
+function firstDefinedValue(...values) {
+  for (const value of values) {
+    if (value === undefined || value === null) continue;
+    if (typeof value === 'string') {
+      if (!value.trim()) continue;
+      return value.trim();
+    }
+    return value;
+  }
+  return undefined;
+}
+
 function withUnits(value) {
   const text = formatValue(value);
   return text && text !== '0' ? `${text} шт.` : '';
@@ -462,6 +604,10 @@ function withUnits(value) {
 function formatValue(value) {
   if (value === undefined || value === null || value === '' || value === 0 || value === '0') return '';
   return String(value).trim();
+}
+
+function normalizeText(value) {
+  return String(value || '').trim().toLowerCase();
 }
 
 function isUnknownAuthor(value) {
@@ -478,6 +624,32 @@ function deduplicateEvents(events) {
 
 function uniqueStrings(values) {
   return [...new Set((Array.isArray(values) ? values : []).filter((value) => typeof value === 'string' && value.trim()))];
+}
+
+function collectPhotoAliases(values) {
+  const result = [];
+  for (const value of Array.isArray(values) ? values : [values]) {
+    if (Array.isArray(value)) {
+      result.push(...collectPhotoAliases(value));
+      continue;
+    }
+    if (typeof value === 'string' && value.trim()) {
+      result.push(value.trim());
+      continue;
+    }
+    if (value && typeof value === 'object') {
+      result.push(...collectPhotoAliases([
+        value.photoPath,
+        value.photoUri,
+        value.path,
+        value.uri,
+        value.photoFiles,
+        value.photoPaths,
+        value.photoUris
+      ]));
+    }
+  }
+  return uniqueStrings(result);
 }
 
 function resolveSnapshotAt(raw, parsed, report, events) {
@@ -497,9 +669,129 @@ function eventTime(value) {
   return Number.isFinite(time) ? time : 0;
 }
 
-function formatDate(value) {
-  const time = eventTime(value);
-  return time ? new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(time)) : '—';
+module.exports = { buildStagesPageModel, buildBatchCatalog, deduplicateEvents, STAGE_ORDER, STAGE_LABELS, formatDate };
+
+function mergeSnapshotEntity(parsed, raw) {
+  const merged = {
+    ...(parsed && typeof parsed === 'object' ? parsed : {})
+  };
+
+  for (const [key, value] of Object.entries(raw && typeof raw === 'object' ? raw : {})) {
+    if (typeof value === 'string') {
+      if (value.trim()) merged[key] = value;
+      continue;
+    }
+    if (Array.isArray(value)) {
+      if (hasMeaningfulValue(value)) merged[key] = value;
+      continue;
+    }
+    if (value && typeof value === 'object') {
+      const nested = mergeSnapshotEntity(
+        merged[key] && typeof merged[key] === 'object' && !Array.isArray(merged[key]) ? merged[key] : {},
+        value
+      );
+      if (Object.keys(nested).length) merged[key] = nested;
+      continue;
+    }
+    if (value !== undefined && value !== null) {
+      merged[key] = value;
+    }
+  }
+
+  return merged;
 }
 
-module.exports = { buildStagesPageModel, buildBatchCatalog, deduplicateEvents, STAGE_ORDER, STAGE_LABELS, formatDate };
+function hasMeaningfulValue(value) {
+  if (typeof value === 'string') {
+    return Boolean(value.trim());
+  }
+
+  if (Array.isArray(value)) {
+    return value.some((item) => hasMeaningfulValue(item));
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.values(value).some((item) => hasMeaningfulValue(item));
+  }
+
+  return value !== undefined && value !== null;
+}
+
+const ALL_EMPLOYEES_LABEL = '\u0412\u0441\u0435 \u0441\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a\u0438';
+const ALL_BATCHES_LABEL = '\u0412\u0441\u0435 \u043f\u0430\u0440\u0442\u0438\u0438';
+const STAGES_PAGE_TITLE = '\u041f\u0430\u0440\u0442\u0438\u0438';
+const READABLE_DASH = '\u2014';
+
+function buildStagesPageModel(reports = [], query = {}) {
+  const cards = buildBatchCatalog(reports);
+  const search = String(query.q || '').trim();
+  const requestedStage = String(query.stage || '').trim();
+  const stage = normalizeText(requestedStage) === 'all'
+    ? 'all'
+    : canonicalizeStage(requestedStage) || 'all';
+  const employeeOptions = buildEmployeeOptions(cards);
+  const requestedEmployee = String(query.employee || '').trim();
+  const normalizedRequestedEmployee = normalizeText(requestedEmployee);
+  const fallbackEmployeeOption = employeeOptions.find((item) => item.key !== 'all') || employeeOptions[0] || { key: 'all' };
+  const selectedEmployeeOption = employeeOptions.find((item) => normalizeText(item.key) === normalizedRequestedEmployee) || null;
+  const employee = normalizedRequestedEmployee
+    ? (selectedEmployeeOption || fallbackEmployeeOption).key
+    : 'all';
+  const filteredCards = cards.filter((card) => {
+    const matchesStage = !stage || stage === 'all' || normalizeText(canonicalizeStage(card.stage)) === normalizeText(stage);
+    const matchesEmployee = employee === 'all' || normalizeText(card.employeeKey) === normalizeText(employee);
+    const matchesSearch = !search || card.searchText.includes(search.toLowerCase());
+    return matchesStage && matchesEmployee && matchesSearch;
+  });
+  const requestedBatchKey = normalizeText(query.batchId);
+  const requestedCardId = String(query.cardId || '').trim();
+  const selectedTab = ['passport', 'journal'].includes(normalizeText(query.tab))
+    ? normalizeText(query.tab)
+    : 'journal';
+  const highlightedEventId = String(query.eventId || '').trim();
+  const selectedCard = filteredCards.find((card) => normalizeText(card.batchKey) === requestedBatchKey)
+    || (!requestedBatchKey && filteredCards.find((card) => card.cardId === requestedCardId))
+    || null;
+
+  return {
+    pageTitle: STAGES_PAGE_TITLE,
+    search,
+    selectedStage: stage || 'all',
+    selectedEmployee: employee,
+    selectedCardId: selectedCard ? selectedCard.cardId : '',
+    selectedBatchKey: selectedCard ? selectedCard.batchKey : '',
+    selectedTab,
+    highlightedEventId,
+    cards: filteredCards,
+    selectedCard,
+    stages: [
+      { key: 'all', label: ALL_BATCHES_LABEL, count: cards.length },
+      ...STAGE_ORDER.map((key) => ({
+        key,
+        label: STAGE_LABELS[key],
+        count: cards.filter((card) => normalizeText(canonicalizeStage(card.stage)) === normalizeText(key)).length
+      }))
+    ],
+    employees: employeeOptions
+  };
+}
+
+function buildEmployeeOptions(cards) {
+  const employees = new Map();
+  cards.forEach((card) => {
+    if (!card.employeeKey || !card.employeeName) return;
+    const employee = employees.get(card.employeeKey) || { key: card.employeeKey, label: card.employeeName, count: 0 };
+    employee.count += 1;
+    employees.set(card.employeeKey, employee);
+  });
+
+  return [
+    { key: 'all', label: ALL_EMPLOYEES_LABEL, count: cards.length },
+    ...disambiguateEmployeeOptions([...employees.values()]).sort((a, b) => a.label.localeCompare(b.label, 'ru') || a.key.localeCompare(b.key, 'ru'))
+  ];
+}
+
+function formatDate(value) {
+  const time = eventTime(value);
+  return time ? new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(time)) : READABLE_DASH;
+}
