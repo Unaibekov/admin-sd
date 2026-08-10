@@ -1,4 +1,4 @@
-<%- include('partials/head', { pageTitle }) %>
+﻿<%- include('partials/head', { pageTitle }) %>
 <div class="app-shell">
   <%- include('partials/sidebar', { activePage: 'reports', showDashboardLink }) %>
 
@@ -6,9 +6,7 @@
     <section class="report-dashboard-page">
       <div class="report-dashboard-shell">
         <% const employeeOptions = Array.isArray(reportsPage && reportsPage.employees) ? reportsPage.employees : []; %>
-        <% const employeeReports = Array.isArray(reportsPage && reportsPage.employeeReports) ? reportsPage.employeeReports : []; %>
         <% const selectedEmployeeKey = reportsPage && reportsPage.selectedEmployeeKey ? reportsPage.selectedEmployeeKey : ''; %>
-        <% const selectedReportId = reportsPage && reportsPage.selectedReportId ? reportsPage.selectedReportId : ''; %>
         <% const reportContentModel = typeof reportsContent !== 'undefined' ? reportsContent : null; %>
 
         <% if (!reportsPage.hasEmployees) { %>
@@ -19,15 +17,12 @@
             </div>
           </header>
         <% } else { %>
-          <header class="report-dashboard-head reports-page-head">
-            <div>
+          <header class="report-dashboard-head reports-page-head reports-page-toolbar" data-reports-filters>
+            <div class="reports-page-toolbar-copy">
               <h1>Отчеты</h1>
               <p>Просмотр отчетов сотрудников.</p>
             </div>
-          </header>
-
-          <section class="dashboard-card reports-filters-card" aria-label="Фильтры отчетов" data-reports-filters>
-            <form class="reports-filters-form" method="get" action="/reports">
+            <form class="reports-filters-form reports-toolbar-form" method="get" action="/reports" aria-label="Фильтры отчетов">
               <label class="reports-filter-field">
                 <span>Сотрудник</span>
                 <select name="employee" data-reports-employee>
@@ -38,38 +33,10 @@
                   <% }) %>
                 </select>
               </label>
-
-              <label class="reports-filter-field">
-                <span>Отчет</span>
-                <select name="reportId" data-reports-report <%= employeeReports.length <= 1 ? 'disabled' : '' %>>
-                  <% employeeReports.forEach((report, index) => { %>
-                    <% const reportLabel = index === 0 ? `${report.displayCreatedAt} — последний` : report.displayCreatedAt; %>
-                    <option value="<%= report.reportId %>" <%= selectedReportId === report.reportId ? 'selected' : '' %>>
-                      <%= reportLabel %>
-                    </option>
-                  <% }) %>
-                </select>
-                <% if (employeeReports.length <= 1 && selectedReportId) { %>
-                  <input type="hidden" name="reportId" value="<%= selectedReportId %>">
-                <% } %>
-              </label>
-
-              <button type="submit" class="button reports-filter-submit">Показать</button>
             </form>
-          </section>
+          </header>
 
           <% if (reportContentModel) { %>
-            <section class="dashboard-card report-header-card" aria-label="Выбранный отчет">
-              <div class="report-header-copy">
-                <strong><%= reportContentModel.header.employeeName %></strong>
-                <span><%= reportContentModel.header.employeeRole %></span>
-                <span>Отчет от <%= reportContentModel.header.reportDateTime %></span>
-              </div>
-              <% if (reportContentModel.header.isLatestReport) { %>
-                <span class="report-header-badge">Последний отчет</span>
-              <% } %>
-            </section>
-
             <section class="report-kpi-grid" aria-label="Основные показатели">
               <% reportContentModel.kpis.forEach((metric) => { %>
                 <article class="dashboard-stat dashboard-stat-<%= metric.key === 'problems' && metric.value > 0 ? 'warning' : 'dark' %>">
@@ -94,18 +61,27 @@
                     <% reportContentModel.issues.forEach((issue) => { %>
                       <% const issueRisk = issue.risk ? ` · ${issue.risk}` : ''; %>
                       <% const issueLocation = issue.location ? ` · ${issue.location}` : ''; %>
-                      <article class="report-attention-item">
-                        <div class="report-attention-copy">
-                          <strong><%= issue.title %></strong>
-                          <span><%= issue.code %></span>
-                          <span><%= issue.reason %><%= issueRisk %></span>
-                          <span><%= issue.quantity %> растений</span>
-                          <span><%= issue.stage %><%= issueLocation %></span>
-                        </div>
-                        <% if (issue.href) { %>
-                          <a class="dashboard-card-link" href="<%= issue.href %>">Открыть партию</a>
-                        <% } %>
-                      </article>
+                      <% if (issue.href) { %>
+                        <a class="report-attention-item report-attention-link" href="<%= issue.href %>">
+                          <div class="report-attention-copy">
+                            <strong><%= issue.title %></strong>
+                            <span>Код: <%= issue.code %></span>
+                            <span>Проблема: <%= issue.reason %><%= issueRisk %></span>
+                            <span>Остаток: <%= issue.quantity %> растений</span>
+                            <span>Стадия: <%= issue.stage %><%= issueLocation %></span>
+                          </div>
+                        </a>
+                      <% } else { %>
+                        <article class="report-attention-item">
+                          <div class="report-attention-copy">
+                            <strong><%= issue.title %></strong>
+                            <span>Код: <%= issue.code %></span>
+                            <span>Проблема: <%= issue.reason %><%= issueRisk %></span>
+                            <span>Остаток: <%= issue.quantity %> растений</span>
+                            <span>Стадия: <%= issue.stage %><%= issueLocation %></span>
+                          </div>
+                        </article>
+                      <% } %>
                     <% }) %>
                   </div>
                 <% } else { %>
@@ -119,16 +95,16 @@
                     <h2>Работа по стадиям</h2>
                     <p>Текущее распределение партий и растений по стадиям.</p>
                   </div>
-                  <a class="dashboard-card-link" href="/stages?reportId=<%= encodeURIComponent(selectedReport.reportId) %>">Все партии</a>
+                  <a class="dashboard-card-link" href="/stages?reportId=<%= encodeURIComponent(selectedReport.reportId) %>&employee=<%= encodeURIComponent(reportsPage.selectedEmployeeKey) %>">Все партии</a>
                 </div>
 
                 <div class="report-stage-summary">
                   <% reportContentModel.stageSummary.forEach((item) => { %>
-                    <article class="report-stage-row">
+                    <a class="report-stage-row report-stage-link" href="<%= item.href %>">
                       <strong><%= item.stage %></strong>
                       <span><%= item.batchesCount %> партий</span>
                       <span><%= item.plantsCount %> растений</span>
-                    </article>
+                    </a>
                   <% }) %>
                 </div>
               </article>
@@ -185,7 +161,7 @@
               </article>
             </section>
           <% } else { %>
-            <div class="dashboard-inline-empty reports-selection-empty">Выберите сотрудника, чтобы открыть его отчет.</div>
+            <div class="dashboard-inline-empty reports-selection-empty">У сотрудника пока нет доступных данных.</div>
           <% } %>
         <% } %>
       </div>

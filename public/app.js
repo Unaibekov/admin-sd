@@ -57,6 +57,109 @@
 
   initBatchTabs();
 
+  const dashboardRoot = document.querySelector('[data-dashboard-page]');
+  if (dashboardRoot && window.fetch && window.DOMParser && window.history) {
+    let dashboardRequest = null;
+
+    const loadDashboardPeriod = async (href, push = true) => {
+      if (dashboardRequest) dashboardRequest.abort();
+      const request = new AbortController();
+      dashboardRequest = request;
+      dashboardRoot.classList.add('is-loading');
+      dashboardRoot.setAttribute('aria-busy', 'true');
+
+      try {
+        const response = await fetch(href, {
+          headers: { 'X-Requested-With': 'fetch' },
+          signal: request.signal
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+        const html = await response.text();
+        const nextDocument = new DOMParser().parseFromString(html, 'text/html');
+        const currentShell = dashboardRoot.querySelector('.dashboard-shell');
+        const nextShell = nextDocument.querySelector('[data-dashboard-page] .dashboard-shell');
+        if (!currentShell || !nextShell) throw new Error('Missing dashboard shell');
+
+        currentShell.replaceWith(nextShell);
+        if (push) window.history.pushState({ dashboardPeriod: true }, '', href);
+      } catch (error) {
+        if (error.name !== 'AbortError') window.location.href = href;
+      } finally {
+        if (dashboardRequest === request) {
+          dashboardRequest = null;
+          dashboardRoot.classList.remove('is-loading');
+          dashboardRoot.removeAttribute('aria-busy');
+        }
+      }
+    };
+
+    dashboardRoot.addEventListener('click', (event) => {
+      const link = event.target.closest('.dashboard-period-switcher a');
+      if (!link || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      if (link.href === window.location.href) return;
+      loadDashboardPeriod(link.href);
+    });
+
+    window.addEventListener('popstate', () => {
+      if (window.location.pathname === '/') loadDashboardPeriod(window.location.href, false);
+    });
+  }
+
+  const problemsRoot = document.querySelector('[data-problems-page]');
+  if (problemsRoot && window.fetch && window.DOMParser && window.history) {
+    let problemsRequest = null;
+
+    const loadProblemsPage = async (href, push = true) => {
+      if (problemsRequest) problemsRequest.abort();
+      const request = new AbortController();
+      problemsRequest = request;
+      problemsRoot.classList.add('is-loading');
+      problemsRoot.setAttribute('aria-busy', 'true');
+
+      try {
+        const response = await fetch(href, {
+          headers: { 'X-Requested-With': 'fetch' },
+          signal: request.signal
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+        const html = await response.text();
+        const nextDocument = new DOMParser().parseFromString(html, 'text/html');
+        const currentShell = problemsRoot.querySelector('.problems-page');
+        const nextShell = nextDocument.querySelector('[data-problems-page] .problems-page');
+        if (!currentShell || !nextShell) throw new Error('Missing problems shell');
+
+        currentShell.replaceWith(nextShell);
+        if (push) window.history.pushState({ problemsPage: true }, '', href);
+      } catch (error) {
+        if (error.name !== 'AbortError') window.location.href = href;
+      } finally {
+        if (problemsRequest === request) {
+          problemsRequest = null;
+          problemsRoot.classList.remove('is-loading');
+          problemsRoot.removeAttribute('aria-busy');
+        }
+      }
+    };
+
+    problemsRoot.addEventListener('submit', (event) => {
+      const form = event.target.closest('.problems-filters-form');
+      if (!form) return;
+      event.preventDefault();
+      const action = form.getAttribute('action') || window.location.pathname;
+      const url = new URL(action, window.location.href);
+      const formData = new FormData(form);
+      url.search = new URLSearchParams(formData).toString();
+      loadProblemsPage(url.toString());
+    });
+
+    window.addEventListener('popstate', () => {
+      if (window.location.pathname === '/problems') loadProblemsPage(window.location.href, false);
+    });
+  }
+
   const batchesFilters = Array.from(document.querySelectorAll('[data-batches-filter]'));
   if (batchesFilters.length) {
     const close = (filter) => {
@@ -632,18 +735,12 @@
   if (reportsFiltersRoot) {
     const form = reportsFiltersRoot.querySelector('.reports-filters-form');
     const employeeSelect = reportsFiltersRoot.querySelector('[data-reports-employee]');
-    const reportSelect = reportsFiltersRoot.querySelector('[data-reports-report]');
-    if (form && employeeSelect && reportSelect) {
+    if (form && employeeSelect) {
       employeeSelect.addEventListener('change', () => {
         const url = new URL(form.action || window.location.href, window.location.href);
         url.searchParams.set('employee', employeeSelect.value);
         url.searchParams.delete('reportId');
         window.location.href = `${url.pathname}?${url.searchParams.toString()}`;
-      });
-
-      reportSelect.addEventListener('change', () => {
-        if (!reportSelect.value) return;
-        form.requestSubmit();
       });
     }
   }

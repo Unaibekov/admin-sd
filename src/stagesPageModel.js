@@ -791,11 +791,20 @@ function hasMeaningfulValue(value) {
 
 const ALL_EMPLOYEES_LABEL = '\u0412\u0441\u0435 \u0441\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a\u0438';
 const ALL_BATCHES_LABEL = '\u0412\u0441\u0435 \u043f\u0430\u0440\u0442\u0438\u0438';
+const ALL_STATUSES_LABEL = '\u0412\u0441\u0435 \u0441\u0442\u0430\u0442\u0443\u0441\u044b';
 const STAGES_PAGE_TITLE = '\u041f\u0430\u0440\u0442\u0438\u0438';
 const READABLE_DASH = '\u2014';
+const STATUS_FILTER_DEFINITIONS = [
+  { key: 'active', label: '\u0410\u043a\u0442\u0438\u0432\u043d\u044b\u0435' },
+  { key: 'problem', label: '\u0421 \u043f\u0440\u043e\u0431\u043b\u0435\u043c\u043e\u0439' },
+  { key: 'isolated', label: '\u0412 \u0438\u0437\u043e\u043b\u044f\u0446\u0438\u0438' },
+  { key: 'quarantine', label: '\u041a\u0430\u0440\u0430\u043d\u0442\u0438\u043d' },
+  { key: 'completed', label: '\u0417\u0430\u0432\u0435\u0440\u0448\u0451\u043d\u043d\u044b\u0435' },
+  { key: 'sold_archived', label: '\u041f\u0440\u043e\u0434\u0430\u043d\u043d\u044b\u0435 / \u0430\u0440\u0445\u0438\u0432\u043d\u044b\u0435' }
+];
 
 function buildStagesPageModel(reports = [], query = {}) {
-  const cards = attachBatchRelations(buildBatchCatalog(reports));
+  const cards = attachBatchRelations(buildBatchCatalog(reports)).map(enrichBatchState);
   const search = String(query.q || '').trim();
   const selectedReportId = String(query.reportId || '').trim();
   const requestedStage = String(query.stage || '').trim();
@@ -810,11 +819,19 @@ function buildStagesPageModel(reports = [], query = {}) {
   const employee = normalizedRequestedEmployee
     ? (selectedEmployeeOption || fallbackEmployeeOption).key
     : 'all';
+  const requestedStatus = normalizeText(query.status || 'all') || 'all';
+  const status = STATUS_FILTER_DEFINITIONS.some((item) => item.key === requestedStatus) || requestedStatus === 'all'
+    ? requestedStatus
+    : 'all';
+  const cardsMatchingSearch = cards.filter((card) => !search || card.searchText.includes(search.toLowerCase()));
+  const employeeScopedCards = cardsMatchingSearch.filter((card) => employee === 'all' || normalizeText(card.employeeKey) === normalizeText(employee));
+  const stageScopedCards = cardsMatchingSearch.filter((card) => !stage || stage === 'all' || normalizeText(canonicalizeStage(card.stage)) === normalizeText(stage));
   const filteredCards = cards.filter((card) => {
     const matchesStage = !stage || stage === 'all' || normalizeText(canonicalizeStage(card.stage)) === normalizeText(stage);
     const matchesEmployee = employee === 'all' || normalizeText(card.employeeKey) === normalizeText(employee);
     const matchesSearch = !search || card.searchText.includes(search.toLowerCase());
-    return matchesStage && matchesEmployee && matchesSearch;
+    const matchesStatus = status === 'all' || matchesStatusFilter(card, status);
+    return matchesStage && matchesEmployee && matchesSearch && matchesStatus;
   });
   const requestedBatchKey = normalizeText(query.batchId);
   const requestedCardId = String(query.cardId || '').trim();
@@ -832,21 +849,17 @@ function buildStagesPageModel(reports = [], query = {}) {
     selectedReportId,
     selectedStage: stage || 'all',
     selectedEmployee: employee,
+    selectedStatus: status,
     selectedCardId: selectedCard ? selectedCard.cardId : '',
     selectedBatchKey: selectedCard ? selectedCard.batchKey : '',
     selectedTab,
     highlightedEventId,
     cards: filteredCards,
     selectedCard,
-    stages: [
-      { key: 'all', label: ALL_BATCHES_LABEL, count: cards.length },
-      ...STAGE_ORDER.map((key) => ({
-        key,
-        label: STAGE_LABELS[key],
-        count: cards.filter((card) => normalizeText(canonicalizeStage(card.stage)) === normalizeText(key)).length
-      }))
-    ],
-    employees: employeeOptions
+    stages: buildStageOptions(employeeScopedCards, status),
+    employees: buildEmployeeOptions(stageScopedCards, status),
+    statuses: buildStatusOptions(employeeScopedCards, stage),
+    hasActiveFilters: Boolean(search || stage !== 'all' || employee !== 'all' || status !== 'all')
   };
 }
 
@@ -886,19 +899,148 @@ function attachBatchRelations(cards = []) {
   return items;
 }
 
-function buildEmployeeOptions(cards) {
+function buildEmployeeOptions(cards, selectedStatus = 'all') {
   const employees = new Map();
   cards.forEach((card) => {
-    if (!card.employeeKey || !card.employeeName) return;
+    if ((selectedStatus !== 'all' && !matchesStatusFilter(card, selectedStatus)) || !card.employeeKey || !card.employeeName) return;
     const employee = employees.get(card.employeeKey) || { key: card.employeeKey, label: card.employeeName, count: 0 };
     employee.count += 1;
     employees.set(card.employeeKey, employee);
   });
 
   return [
-    { key: 'all', label: ALL_EMPLOYEES_LABEL, count: cards.length },
+    {
+      key: 'all',
+      label: ALL_EMPLOYEES_LABEL,
+      count: cards.filter((card) => selectedStatus === 'all' || matchesStatusFilter(card, selectedStatus)).length
+    },
     ...disambiguateEmployeeOptions([...employees.values()]).sort((a, b) => a.label.localeCompare(b.label, 'ru') || a.key.localeCompare(b.key, 'ru'))
   ];
+}
+
+function buildStageOptions(cards = [], selectedStatus = 'all') {
+  const scopedCards = Array.isArray(cards)
+    ? cards.filter((card) => selectedStatus === 'all' || matchesStatusFilter(card, selectedStatus))
+    : [];
+  return [
+    { key: 'all', label: ALL_BATCHES_LABEL, count: scopedCards.length },
+    ...STAGE_ORDER.map((key) => ({
+      key,
+      label: STAGE_LABELS[key],
+      count: scopedCards.filter((card) => normalizeText(canonicalizeStage(card.stage)) === normalizeText(key)).length
+    }))
+  ];
+}
+
+function buildStatusOptions(cards = [], selectedStage = 'all') {
+  const scopedCards = Array.isArray(cards)
+    ? cards.filter((card) => !selectedStage || selectedStage === 'all' || normalizeText(canonicalizeStage(card.stage)) === normalizeText(selectedStage))
+    : [];
+  return [
+    { key: 'all', label: ALL_STATUSES_LABEL, count: scopedCards.length },
+    ...STATUS_FILTER_DEFINITIONS.map((definition) => ({
+      ...definition,
+      count: scopedCards.filter((card) => matchesStatusFilter(card, definition.key)).length
+    }))
+  ];
+}
+
+function matchesStatusFilter(card = {}, filterKey = '') {
+  const visualStatusKey = resolveVisualStatusKey(card);
+
+  if (filterKey === 'active') return visualStatusKey === 'active';
+  if (filterKey === 'problem') return visualStatusKey === 'problem';
+  if (filterKey === 'isolated') return visualStatusKey === 'isolated';
+  if (filterKey === 'quarantine') return visualStatusKey === 'quarantine';
+  if (filterKey === 'completed') return visualStatusKey === 'completed';
+  if (filterKey === 'sold_archived') return visualStatusKey === 'final';
+  return true;
+}
+
+function enrichBatchState(card = {}) {
+  const visualStatusKey = resolveVisualStatusKey(card);
+  return {
+    ...card,
+    visualStatusKey,
+    visualStatusLabel: resolveVisualStatusLabel(card, visualStatusKey),
+    visualStatusTone: resolveVisualStatusTone(visualStatusKey)
+  };
+}
+
+function resolveVisualStatusKey(card = {}) {
+  const status = normalizeStatus(card.status);
+  if (isIsolatedBatch(card)) return 'isolated';
+  if (status === 'quarantine' && !isReleasedIsolationBatch(card)) return 'quarantine';
+  if (hasActiveProblem(card)) return 'problem';
+  if (status === 'completed') return 'completed';
+  if (['sold', 'archived', 'cancelled', 'canceled'].includes(status)) return 'final';
+  if (isWorkingStatus(status)) return 'active';
+  return status || 'unknown';
+}
+
+function resolveVisualStatusLabel(card = {}, visualStatusKey = '') {
+  if (visualStatusKey === 'isolated') return '\u0412 \u0438\u0437\u043e\u043b\u044f\u0446\u0438\u0438';
+  if (visualStatusKey === 'problem') return '\u0421 \u043f\u0440\u043e\u0431\u043b\u0435\u043c\u043e\u0439';
+  if (visualStatusKey === 'quarantine') return '\u041a\u0430\u0440\u0430\u043d\u0442\u0438\u043d';
+  if (visualStatusKey === 'active') return '\u0410\u043a\u0442\u0438\u0432\u043d\u0430\u044f';
+  return card.statusLabel || '\u041d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d';
+}
+
+function resolveVisualStatusTone(visualStatusKey = '') {
+  if (['problem', 'isolated', 'quarantine'].includes(visualStatusKey)) return 'alert';
+  if (visualStatusKey === 'active') return 'ok';
+  if (['completed', 'final', 'cancelled', 'unknown'].includes(visualStatusKey)) return 'muted';
+  return 'muted';
+}
+
+function normalizeStatus(value) {
+  return normalizeText(value).replace(/[\s_-]+/g, '');
+}
+
+function isWorkingStatus(status) {
+  return !['sold', 'archived', 'cancelled', 'canceled', 'completed', 'inactive'].includes(normalizeStatus(status));
+}
+
+function isIsolatedBatch(batch = {}) {
+  return normalizeText(batch.originType) === 'problemisolation'
+    && normalizeText(batch.isolationStatus) === 'isolated';
+}
+
+function isReleasedIsolationBatch(batch = {}) {
+  return normalizeText(batch.originType) === 'problemisolation'
+    && normalizeText(batch.isolationStatus) === 'released'
+    && toPositiveNumber(batch.activeProblemQuantity) === 0;
+}
+
+function hasActiveProblem(batch = {}) {
+  const activeProblemQuantity = toPositiveNumber(batch.activeProblemQuantity);
+  if (activeProblemQuantity > 0) return true;
+  if (hasExplicitZero(batch.activeProblemQuantity)) return false;
+
+  const healthStatus = normalizeText(batch.healthStatus);
+  const status = normalizeStatus(batch.status);
+  const isolationStatus = normalizeText(batch.isolationStatus);
+
+  if (healthStatus === 'resolved' || healthStatus === 'recovered' || isolationStatus === 'released') {
+    return false;
+  }
+
+  return healthStatus === 'infected'
+    || healthStatus === 'problem'
+    || healthStatus === 'unhealthy'
+    || status === 'problem'
+    || (status === 'quarantine' && isolationStatus !== 'released');
+}
+
+function hasExplicitZero(value) {
+  if (value === undefined || value === null || value === '') return false;
+  const number = Number(value);
+  return Number.isFinite(number) && number === 0;
+}
+
+function toPositiveNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : 0;
 }
 
 function formatDate(value) {

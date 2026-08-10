@@ -1,4 +1,5 @@
-const { formatCountLabel } = require('./formatCountLabel');
+﻿const { formatCountLabel } = require('./formatCountLabel');
+const { normalizeRole } = require('./roleLabel');
 
 const UNKNOWN_EMPLOYEE = 'Неизвестно';
 const REPORT_LABELS = ['отчет', 'отчета', 'отчетов'];
@@ -57,22 +58,23 @@ function buildReportsPageModel(reports = [], query = {}) {
       reports: employee.reports.sort((left, right) => right.createdAtMs - left.createdAtMs)
     })));
 
+  const requestedReportId = String(query && query.reportId || '').trim();
   const requestedEmployeeKey = normalizeLookupText(query.employee);
+  const employeeFromLegacyReportId = requestedReportId
+    ? employees.find((employee) => Array.isArray(employee.reports) && employee.reports.some((report) => report.reportId === requestedReportId)) || null
+    : null;
   const selectedEmployee = requestedEmployeeKey
     ? employees.find((employee) => employee.key === requestedEmployeeKey)
       || employees.find((employee) => employee.searchText === requestedEmployeeKey)
       || employees.find((employee) => employee.baseSearchText === requestedEmployeeKey)
       || employees[0]
       || null
-    : employees[0] || null;
+    : employeeFromLegacyReportId || employees[0] || null;
 
   const employeeReports = selectedEmployee && Array.isArray(selectedEmployee.reports)
     ? selectedEmployee.reports
     : [];
-  const requestedReportId = String(query && query.reportId || '').trim();
-  const selectedReportSummary = requestedReportId
-    ? employeeReports.find((report) => report.reportId === requestedReportId) || employeeReports[0] || null
-    : employeeReports[0] || null;
+  const selectedReportSummary = employeeReports[0] || null;
   const latestEmployeeReport = employeeReports[0] || null;
 
   return {
@@ -258,7 +260,7 @@ function resolveReportEmployeeIdentity(report) {
 
 function resolveReportEmployeeRole(report) {
   const user = report && report.user ? report.user : {};
-  return String(user.role || '').trim() || 'Роль не указана';
+  return normalizeRole(user.role || '');
 }
 
 function buildReportEmployeeKeyResolver(reports = []) {
@@ -352,19 +354,25 @@ function buildReportsContentModel(reportsPage, selectedReport, reportDashboard) 
       { key: 'problems', label: 'Активные проблемы', value: attentionEvents.length },
       { key: 'events', label: 'События', value: reportDashboard.summary.eventsCount }
     ],
-    issues: buildAttentionItems(attentionEvents, batches, selectedReport.reportId),
-    stageSummary: buildStageSummary(batches),
-    linkedBatches: buildLinkedBatchGroups(batches, selectedReport.reportId),
+    issues: buildAttentionItems(attentionEvents, batches, selectedReport.reportId, reportsPage.selectedEmployeeKey),
+    stageSummary: buildStageSummary(batches, selectedReport.reportId, reportsPage.selectedEmployeeKey),
+    linkedBatches: buildLinkedBatchGroups(batches, selectedReport.reportId, reportsPage.selectedEmployeeKey),
     recentEvents: recentEvents.map((event) => ({
       ...event,
       href: event && event.batchKey
-        ? `/stages?batchId=${encodeURIComponent(event.batchKey)}&reportId=${encodeURIComponent(selectedReport.reportId)}&tab=journal${event.eventId ? `&eventId=${encodeURIComponent(event.eventId)}` : ''}#journal`
+        ? buildStagesHref({
+            batchId: event.batchKey,
+            reportId: selectedReport.reportId,
+            employee: reportsPage.selectedEmployeeKey,
+            tab: 'journal',
+            eventId: event.eventId || ''
+          }, '#journal')
         : ''
     }))
   };
 }
 
-function buildAttentionItems(attentionEvents = [], batches = [], reportId = '') {
+function buildAttentionItems(attentionEvents = [], batches = [], reportId = '', employeeKey = '') {
   const batchByKey = new Map((Array.isArray(batches) ? batches : []).map((batch) => [batch.batchKey, batch]));
 
   return (Array.isArray(attentionEvents) ? attentionEvents : []).slice(0, 6).map((event) => {
@@ -378,13 +386,13 @@ function buildAttentionItems(attentionEvents = [], batches = [], reportId = '') 
       stage: batch && batch.stage || event.stage || 'Без стадии',
       location: batch && batch.location || '',
       href: event && event.batchKey
-        ? `/stages?batchId=${encodeURIComponent(event.batchKey)}&reportId=${encodeURIComponent(reportId)}`
+        ? buildStagesHref({ batchId: event.batchKey, reportId, employee: employeeKey })
         : ''
     };
   });
 }
 
-function buildStageSummary(batches = []) {
+function buildStageSummary(batches = [], reportId = '', employeeKey = '') {
   const stages = [
     'Введение в культуру',
     'Клонирование',
@@ -396,15 +404,19 @@ function buildStageSummary(batches = []) {
 
   return stages.map((stage) => {
     const stageBatches = (Array.isArray(batches) ? batches : []).filter((batch) => String(batch && batch.stage || '').trim() === stage);
+    const href = stageBatches.length === 1
+      ? buildStagesHref({ batchId: stageBatches[0].batchKey, reportId, employee: employeeKey })
+      : buildStagesHref({ reportId, employee: employeeKey, stage });
     return {
       stage,
       batchesCount: stageBatches.length,
-      plantsCount: stageBatches.reduce((total, batch) => total + readCount(batch && batch.currentQuantity, 0), 0)
+      plantsCount: stageBatches.reduce((total, batch) => total + readCount(batch && batch.currentQuantity, 0), 0),
+      href
     };
   });
 }
 
-function buildLinkedBatchGroups(batches = [], reportId = '') {
+function buildLinkedBatchGroups(batches = [], reportId = '', employeeKey = '') {
   const items = Array.isArray(batches) ? batches : [];
   const byCardId = new Map(items.map((batch) => [normalizeLookupText(batch && batch.cardId), batch]));
   const byCode = new Map(items.map((batch) => [normalizeLookupText(batch && batch.code), batch]));
@@ -422,14 +434,14 @@ function buildLinkedBatchGroups(batches = [], reportId = '') {
       parent: {
         title: parent.title || parent.code || 'Партия без названия',
         code: parent.code || 'Без кода',
-        href: `/stages?batchId=${encodeURIComponent(parent.batchKey)}&reportId=${encodeURIComponent(reportId)}`
+        href: buildStagesHref({ batchId: parent.batchKey, reportId, employee: employeeKey })
       },
       children: children.map((child) => ({
         title: child.title || child.code || 'Партия без названия',
         code: child.code || 'Без кода',
         originLabel: formatOriginLabel(child.originType),
         quantity: readCount(child.currentQuantity, 0),
-        href: `/stages?batchId=${encodeURIComponent(child.batchKey)}&reportId=${encodeURIComponent(reportId)}`
+        href: buildStagesHref({ batchId: child.batchKey, reportId, employee: employeeKey })
       }))
     });
   }
@@ -443,7 +455,7 @@ function buildLinkedBatchGroups(batches = [], reportId = '') {
       parent: parent ? {
         title: parent.title || parent.code || 'Партия без названия',
         code: parent.code || 'Без кода',
-        href: `/stages?batchId=${encodeURIComponent(parent.batchKey)}&reportId=${encodeURIComponent(reportId)}`
+        href: buildStagesHref({ batchId: parent.batchKey, reportId, employee: employeeKey })
       } : {
         title: child.parentCode || 'Родительская партия',
         code: child.parentCode || 'Без кода',
@@ -454,12 +466,25 @@ function buildLinkedBatchGroups(batches = [], reportId = '') {
         code: child.code || 'Без кода',
         originLabel: formatOriginLabel(child.originType),
         quantity: readCount(child.currentQuantity, 0),
-        href: `/stages?batchId=${encodeURIComponent(child.batchKey)}&reportId=${encodeURIComponent(reportId)}`
+        href: buildStagesHref({ batchId: child.batchKey, reportId, employee: employeeKey })
       }]
     });
   }
 
   return groups;
+}
+
+function buildStagesHref(params = {}, hash = '') {
+  const search = new URLSearchParams();
+  if (params.batchId) search.set('batchId', params.batchId);
+  if (params.reportId) search.set('reportId', params.reportId);
+  if (params.employee && params.employee !== 'all') search.set('employee', params.employee);
+  if (params.stage && params.stage !== 'all') search.set('stage', params.stage);
+  if (params.status && params.status !== 'all') search.set('status', params.status);
+  if (params.tab) search.set('tab', params.tab);
+  if (params.eventId) search.set('eventId', params.eventId);
+  const query = search.toString();
+  return `/stages${query ? `?${query}` : ''}${hash || ''}`;
 }
 
 function formatOriginLabel(originType) {

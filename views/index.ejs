@@ -1,4 +1,4 @@
-<%- include('partials/head', { pageTitle }) %>
+﻿<%- include('partials/head', { pageTitle }) %>
 <div class="app-shell">
   <%- include('partials/sidebar', { activePage: dashboard.hasReports ? 'dashboard' : 'upload', showDashboardLink: dashboard.hasReports }) %>
 
@@ -13,93 +13,28 @@
         <a class="button button-primary" href="/upload">Загрузить отчет</a>
       </section>
     <% } else { %>
-      <% const dashboardUrl = (period) => `/?period=${encodeURIComponent(period)}`; %>
-      <% const metricIcon = (key) => {
-        const icons = {
-          active: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V10m0 5c-4.2 0-7-2.5-7-6.8C8.6 8.2 11 10.7 12 15Zm0-9.5c.9-3 3.2-4.5 6.8-4.5 0 3.9-2.4 6.5-6.8 6.5Z"/></svg>',
-          attention: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2.8 20h18.4L12 3Zm0 6v4m0 3h.01"/></svg>',
-          quarantine: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.7 2.9 8.2 7 10 4.1-1.8 7-5.3 7-10V6l-7-3Zm-3 9h6m-3-3v6"/></svg>',
-          losses: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 6v12m10-12v12M5 18h14M9 10l3 3 3-3"/></svg>',
-          employees: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 20v-1.5c0-2-1.8-3.5-4-3.5s-4 1.5-4 3.5V20m4-9a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm6 9v-1.5c0-1.4-.8-2.6-2-3.2M17 5.2a3 3 0 0 1 0 5.6M6 15.3a3.5 3.5 0 0 0-2 3.2V20"/></svg>'
-        };
-        return icons[key] || icons.active;
+      <% const dashboardUrl = (period) => {
+        const params = new URLSearchParams();
+        if (dashboard.selectedReportId) params.set('reportId', dashboard.selectedReportId);
+        params.set('period', period);
+        return `/?${params.toString()}`;
       }; %>
-      <% const eventDetails = (event) => {
-        const items = [];
-        const push = (label, value, suffix = '') => {
-          const text = typeof value === 'number' ? String(value) : String(value || '').trim();
-          if (text) items.push(`${label}: ${text}${suffix}`);
-        };
-
-        if (['loss', 'introloss', 'death', 'discard', 'writeoff'].includes(event.type) && event.quantity) {
-          push('Потеряно', event.quantity, ' шт.');
-          push('Было', event.previousQuantity, ' шт.');
-          push('Остаток', event.currentQuantity, ' шт.');
-          push('Причина', event.reason);
-        } else if (event.type === 'sale') {
-          push('Продано', event.quantity, ' шт.');
-          push('Было', event.previousQuantity || event.totalQuantity, ' шт.');
-          push('Остаток', event.currentQuantity, ' шт.');
-          push('Тип реализации', event.saleType);
-          push('Получатель', event.recipient);
-          push('Стоимость', event.saleAmount);
-          push('Комментарий', event.comment);
-        } else if (event.type === 'propagation') {
-          push('Размножено', event.quantity, ' шт.');
-          push('Остаток', event.currentQuantity, ' шт.');
-          push('Способ размножения', event.propagationMethod);
-          push('Комментарий', event.comment);
-        } else if (event.type === 'rooting') {
-          push('Количество', event.quantity ? `${event.quantity}${event.totalQuantity ? ` из ${event.totalQuantity}` : ''}` : '', ' шт.');
-          push('Комментарий', event.comment);
-        } else if (['adaptationcare', 'greenhousecare', 'hardeningcare', 'plantingcare'].includes(event.type)) {
-          push('Тип ухода', event.careType);
-          push('Препарат', event.productName);
-          push('Дозировка', event.dosage);
-          push('Способ внесения', event.applicationMethod);
-          push('Реакция растений', event.plantReaction);
-          push('Комментарий', event.comment);
-        } else if (['adaptationstress', 'greenhouseobservation', 'hardeningobservation', 'plantingobservation'].includes(event.type)) {
-          push('Уровень стресса', event.stressLevel);
-          push('Тургор', event.turgor);
-          push('Комментарий', event.comment);
-        } else if (event.type === 'transplant') {
-          push('Количество', event.quantity, ' шт.');
-          push('Размещение', event.placement);
-          push('Плотность', event.densityChange);
-          push('Комментарий', event.comment);
-        } else if (event.type === 'plantingcompletion') {
-          push('Итог высадки', event.completionResult);
-          push('Комментарий', event.comment);
-        } else if (event.type === 'planting') {
-          push('Высажено', event.quantity, ' шт.');
-          push('Место высадки', event.plantingLocation);
-          push('Схема посадки', event.plantingScheme);
-          push('Площадь / участок', event.plotArea);
-          push('Тип грунта', event.soilType);
-          push('Комментарий', event.comment);
-        } else if (event.type === 'movement') {
-          push('Местоположение', event.location);
-          push('Комментарий', event.comment);
-        } else if (event.type === 'stagechange') {
-          if (event.fromStage && event.toStage) push('Стадия', `${event.fromStage} → ${event.toStage}`);
-          push('Остаток', event.currentQuantity, ' шт.');
-        } else if (event.type === 'problem') {
-          push('Тип проблемы', event.problem);
-          push('Уровень риска', event.risk);
-          push('Описание проблемы', event.problemDescription);
-        } else if (event.risk) {
-          push('Риск', event.risk);
-        } else if (event.comment) {
-          push('Комментарий', event.comment);
-        }
-
-        return items;
+      <% const dashboardJournalUrl = (extra = {}) => {
+        const params = new URLSearchParams();
+        if (dashboard.selectedReportId) params.set('reportId', dashboard.selectedReportId);
+        Object.entries(extra).forEach(([key, value]) => {
+          if (value !== undefined && value !== null && value !== '') params.set(key, value);
+        });
+        return `/journal${params.toString() ? `?${params.toString()}` : ''}`;
       }; %>
-      <% const isLongEventDetail = (text) => String(text || '').length > 42; %>
-      <% const dashboardTimeZone = 'Europe/Moscow'; %>
-
-      <section class="dashboard-page">
+      <% const dashboardReportsUrl = () => {
+        if (!dashboard.selectedReportId) return '/reports';
+        const selectedReport = dashboard.selectedReportSummary
+          || (dashboard.recentReports || []).find((report) => report.reportId === dashboard.selectedReportId)
+          || dashboard.recentReports[0];
+        return selectedReport ? `/reports?employee=${encodeURIComponent(selectedReport.employeeKey)}&reportId=${encodeURIComponent(selectedReport.reportId)}` : '/reports';
+      }; %>
+      <section class="dashboard-page" data-dashboard-page>
         <div class="dashboard-shell">
           <header class="dashboard-overview-head">
             <div>
@@ -121,95 +56,33 @@
             <article class="dashboard-card dashboard-recent-events-card">
               <div class="dashboard-card-head">
                 <div><h2>Последние события</h2><p>Действия сотрудников за период</p></div>
-                <a class="dashboard-card-link" href="/journal">Показать все</a>
+                <a class="dashboard-card-link" href="<%= dashboardJournalUrl() %>">Показать все</a>
               </div>
-              <% if (dashboard.recentEvents.length) { %>
-                <div class="dashboard-event-feed">
-                  <% dashboard.recentEvents.forEach((event) => { %>
-                    <% const eventUrl = event.cardId ? `/stages?cardId=${encodeURIComponent(event.cardId)}&tab=journal${event.eventId ? `&eventId=${encodeURIComponent(event.eventId)}` : ''}#journal` : ''; %>
-                    <% const eventIsAttention = ['problem', 'quarantine', 'contamination', 'greenhousedisease'].includes(event.type) || event.problem || event.risk; %>
-                    <% const eventRowClass = `dashboard-simple-event-row${eventIsAttention ? ' dashboard-simple-event-row-attention' : ''}`; %>
-                    <% if (eventUrl) { %>
-                      <a class="<%= eventRowClass %>" href="<%= eventUrl %>" aria-label="Открыть событие «<%= event.title %>» партии <%= event.code %>">
-                    <% } else { %>
-                      <article class="<%= eventRowClass %>">
-                    <% } %>
-                      <div class="dashboard-simple-event-head">
-                        <div class="dashboard-simple-event-top">
-                          <strong class="dashboard-event-title"><%= event.title %></strong>
-                          <span class="dashboard-simple-event-meta"><time><%= event.timestamp ? new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: 'long', timeZone: dashboardTimeZone }).format(new Date(event.timestamp)) : 'Дата не указана' %><%= event.timestamp ? ` • ${new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: dashboardTimeZone }).format(new Date(event.timestamp))}` : '' %></time><%= event.createdBy ? ` • ${event.createdBy}` : '' %></span>
-                        </div>
-                      </div>
-                      <div class="dashboard-event-main">
-                        <div class="dashboard-event-copy">
-                          <% const details = eventDetails(event); %>
-                          <% if (details.length) { %>
-                            <div class="dashboard-event-details">
-                              <% details.forEach((item) => { %>
-                                <span class="dashboard-event-detail <%= isLongEventDetail(item) ? 'dashboard-event-detail-wide' : '' %>"><%= item %></span>
-                              <% }) %>
-                            </div>
-                          <% } %>
-                        </div>
-                      </div>
-                      <div class="dashboard-event-divider dashboard-simple-event-divider" aria-hidden="true"></div>
-                      <div class="dashboard-simple-event-context">
-                        <span><%= event.culture %></span>
-                        <span><%= event.code %></span>
-                        <span><%= event.stage %></span>
-                      </div>
-                    <% if (eventUrl) { %></a><% } else { %></article><% } %>
-                  <% }) %>
-                </div>
-              <% } else { %>
-                <div class="dashboard-inline-empty">За выбранный период событий нет.</div>
-              <% } %>
+              <%- include('partials/dashboard-event-feed', {
+                events: dashboard.recentEvents,
+                emptyText: 'За выбранный период событий нет.',
+                eventHref: (event) => event.batchKey ? `/stages?batchId=${encodeURIComponent(event.batchKey)}${dashboard.selectedReportId ? `&reportId=${encodeURIComponent(dashboard.selectedReportId)}` : ''}&tab=journal${event.eventId ? `&eventId=${encodeURIComponent(event.eventId)}` : ''}#journal` : ''
+              }) %>
             </article>
 
             <article class="dashboard-card">
-              <div class="dashboard-card-head"><div><h2>Проблемные партии</h2><p>Требуют внимания сейчас</p></div><a class="dashboard-card-link" href="/journal?category=problems">Все проблемы</a></div>
-              <% if (dashboard.attentionBatches.length) { %>
-                <div class="dashboard-attention-list">
-                  <% dashboard.attentionBatches.forEach((batch) => { %>
-                    <% const problemEvent = batch.latestProblemEvent || { type: 'problem', title: batch.latestProblemTitle || batch.reason, culture: batch.title, code: batch.code, stage: batch.stage, createdBy: batch.latestProblemAuthor || '', timestamp: batch.latestProblemAt, problem: batch.reason, risk: batch.risk, problemDescription: batch.problemDescription }; %>
-                    <a href="/stages?batchId=<%= encodeURIComponent(batch.batchKey) %>" class="dashboard-simple-event-row dashboard-simple-event-row-attention" aria-label="Открыть событие «<%= problemEvent.title %>» партии <%= problemEvent.code %>">
-                      <div class="dashboard-simple-event-head">
-                        <div class="dashboard-simple-event-top">
-                          <strong class="dashboard-event-title"><%= problemEvent.title %></strong>
-                          <span class="dashboard-simple-event-meta"><time><%= problemEvent.timestamp ? new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: 'long', timeZone: dashboardTimeZone }).format(new Date(problemEvent.timestamp)) : 'Дата не указана' %><%= problemEvent.timestamp ? ` • ${new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: dashboardTimeZone }).format(new Date(problemEvent.timestamp))}` : '' %></time><%= problemEvent.createdBy ? ` • ${problemEvent.createdBy}` : '' %></span>
-                        </div>
-                      </div>
-                      <div class="dashboard-event-main">
-                        <div class="dashboard-event-copy">
-                          <% const details = eventDetails(problemEvent); %>
-                          <% if (details.length) { %>
-                            <div class="dashboard-event-details">
-                              <% details.forEach((item) => { %>
-                                <span class="dashboard-event-detail <%= isLongEventDetail(item) ? 'dashboard-event-detail-wide' : '' %>"><%= item %></span>
-                              <% }) %>
-                            </div>
-                          <% } %>
-                        </div>
-                      </div>
-                      <div class="dashboard-event-divider dashboard-simple-event-divider" aria-hidden="true"></div>
-                      <div class="dashboard-simple-event-context">
-                        <span><%= problemEvent.culture %></span>
-                        <span><%= problemEvent.code %></span>
-                        <span><%= problemEvent.stage %></span>
-                      </div>
-                    </a>
-                  <% }) %>
-                </div>
-              <% } else { %><div class="dashboard-inline-empty">Нет партий, требующих внимания.</div><% } %>
+              <div class="dashboard-card-head"><div><h2>Проблемные партии</h2><p>Требуют внимания сейчас</p></div><a class="dashboard-card-link" href="<%= dashboardJournalUrl({ category: 'problems' }) %>">Все проблемы</a></div>
+              <%- include('partials/dashboard-event-feed', {
+                events: dashboard.attentionEvents,
+                feedClass: 'dashboard-attention-list',
+                forceAttention: true,
+                emptyText: 'Нет партий, требующих внимания.',
+                eventHref: (event) => event.batchKey ? `/stages?batchId=${encodeURIComponent(event.batchKey)}${dashboard.selectedReportId ? `&reportId=${encodeURIComponent(dashboard.selectedReportId)}` : ''}&tab=journal${event.eventId ? `&eventId=${encodeURIComponent(event.eventId)}` : ''}#journal` : ''
+              }) %>
             </article>
           </section>
 
           <section class="dashboard-grid dashboard-grid-secondary">
             <article class="dashboard-card dashboard-reports-card">
-              <div class="dashboard-card-head"><div><h2>Последние отчеты</h2><p>Последний импорт каждого сотрудника</p></div><a href="/reports" class="dashboard-card-link">Все отчеты</a></div>
+              <div class="dashboard-card-head"><div><h2>Последние отчеты</h2><p>Последний импорт каждого сотрудника</p></div><a href="<%= dashboardReportsUrl() %>" class="dashboard-card-link">Все отчеты</a></div>
               <% if (dashboard.recentReports.length) { %>
                 <div class="dashboard-reports">
-                  <% dashboard.recentReports.forEach((report) => { %><a class="dashboard-report-row" href="/reports?employee=<%= encodeURIComponent(report.employeeKey) %>"><div class="dashboard-report-main"><strong><%= report.author %></strong><span><%= report.role %> · <%= report.displayCreatedAt %></span></div><div class="dashboard-report-pills"><span><%= report.summary.cardsCount %> партий</span><span><%= report.summary.eventsCount %> событий</span><span><%= report.summary.photosCount %> фото</span><span><%= report.summary.problemsCount %> проблем</span></div></a><% }) %>
+                  <% dashboard.recentReports.forEach((report) => { const reportHref = `/reports?employee=${encodeURIComponent(report.employeeKey)}&reportId=${encodeURIComponent(report.reportId)}`; %><a class="dashboard-report-row" href="<%= reportHref %>"><div class="dashboard-report-main"><strong><%= report.author %></strong><span><%= report.role %> &middot; <%= report.displayCreatedAt %></span></div><div class="dashboard-report-pills"><span><%= report.summary.cardsCountLabel %></span><span><%= report.summary.eventsCountLabel %></span><span><%= report.summary.photosCountLabel %></span><span><%= report.summary.problemsCountLabel %></span></div></a><% }) %>
                 </div>
               <% } else { %><div class="dashboard-inline-empty">За выбранный период отчетов нет.</div><% } %>
             </article>
@@ -224,10 +97,12 @@
           <% if (metrics.length) { %>
             <section class="dashboard-production" aria-label="Производственные показатели"><div><h2>Производственные показатели</h2><p>За период: <%= dashboard.period.label %></p></div><div class="dashboard-production-list"><% metrics.forEach((metric) => { %><article><span><%= metric.label %></span><strong><%= metric.value %> <small><%= metric.unit %></small></strong></article><% }) %></div></section>
           <% } %>
-
         </div>
       </section>
     <% } %>
   </main>
 </div>
 <%- include('partials/footer') %>
+
+
+

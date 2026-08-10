@@ -138,7 +138,7 @@ run('keeps employees with the same display name separate when userIds differ', (
   assert.equal(page.selectedEmployee.label, 'Anna Ivanova (anna-user-b)');
 });
 
-run('keeps the exact valid reportId inside the selected employee reports', () => {
+run('uses the latest selected employee report even when a legacy reportId is provided', () => {
   const olderReport = buildReport({
     reportId: 'same-user-old',
     createdAt: '2026-07-30T10:00:00.000Z',
@@ -157,9 +157,39 @@ run('keeps the exact valid reportId inside the selected employee reports', () =>
   const page = buildReportsPageModel([olderReport, newerReport], { employee: 'same user', reportId: 'same-user-old' });
 
   assert.equal(page.selectedEmployeeKey, 'same user');
-  assert.equal(page.selectedReportId, 'same-user-old');
-  assert.equal(page.selectedReportSummary.reportId, 'same-user-old');
-  assert.equal(page.isLatestReport, false);
+  assert.equal(page.selectedReportId, 'same-user-new');
+  assert.equal(page.selectedReportSummary.reportId, 'same-user-new');
+  assert.equal(page.isLatestReport, true);
+});
+
+run('uses legacy reportId only to restore the owning employee and still shows that employee latest report', () => {
+  const olderReport = buildReport({
+    reportId: 'same-user-old',
+    createdAt: '2026-07-30T10:00:00.000Z',
+    displayCreatedAt: '30 \u0438\u044e\u043b\u044f',
+    displayName: 'Same User',
+    userId: 'same-user'
+  });
+  const newerReport = buildReport({
+    reportId: 'same-user-new',
+    createdAt: '2026-07-31T10:00:00.000Z',
+    displayCreatedAt: '31 \u0438\u044e\u043b\u044f',
+    displayName: 'Same User',
+    userId: 'same-user'
+  });
+  const anotherReport = buildReport({
+    reportId: 'another-user-report',
+    createdAt: '2026-08-01T10:00:00.000Z',
+    displayCreatedAt: '1 \u0430\u0432\u0433\u0443\u0441\u0442\u0430',
+    displayName: 'Another User',
+    userId: 'another-user'
+  });
+
+  const page = buildReportsPageModel([olderReport, newerReport, anotherReport], { reportId: 'same-user-old' });
+
+  assert.equal(page.selectedEmployeeKey, 'same user');
+  assert.equal(page.selectedReportId, 'same-user-new');
+  assert.equal(page.selectedReportSummary.reportId, 'same-user-new');
 });
 
 run('matches duplicate-name employees by plain employee query before disambiguated labels', () => {
@@ -314,7 +344,7 @@ run('builds executive summary content for the selected report', () => {
     user: { displayName: 'Anna Ivanova', role: 'agronomist' }
   };
   const reportDashboard = {
-    employee: { name: 'Anna Ivanova', role: 'agronomist' },
+    employee: { name: 'Anna Ivanova', role: 'Агроном' },
     importDate: '31 июля 2026',
     importTime: '13:00',
     summary: { cardsCount: 3, eventsCount: 8 },
@@ -345,6 +375,18 @@ run('builds executive summary content for the selected report', () => {
   assert.equal(content.linkedBatches[0].children.length, 2);
   assert.equal(content.recentEvents.length, 2);
   assert.equal(content.recentEvents[0].eventId, 'event-2');
+});
+
+run('translates employee role on the reports page model', () => {
+  const page = buildReportsPageModel([buildReport({
+    reportId: 'translated-role-report',
+    createdAt: '2026-07-31T10:00:00.000Z',
+    displayCreatedAt: '31 \u0438\u044e\u043b\u044f',
+    displayName: 'Anna Ivanova',
+    role: 'lab'
+  })], { employee: 'anna ivanova' });
+
+  assert.equal(page.selectedEmployee.role, '\u041b\u0430\u0431\u043e\u0440\u0430\u043d\u0442');
 });
 
 run('builds reports content safely for legacy reports without relation fields', () => {

@@ -1,4 +1,4 @@
-const assert = require('assert/strict');
+﻿const assert = require('assert/strict');
 const { buildCurrentDashboardSnapshot, buildDashboard, getLatestBatchSnapshots } = require('../src/dashboardModel');
 const { formatCountLabel } = require('../src/formatCountLabel');
 
@@ -1181,6 +1181,7 @@ run('builds preformatted count labels for recent report cards', () => {
   }];
 
   const dashboard = buildDashboard(reports, reports[0], reports, { period: 'all' });
+  assert.equal(dashboard.recentReports[0].role, 'Оператор');
   assert.equal(dashboard.recentReports[0].summary.cardsCountLabel, '1 партия');
   assert.equal(dashboard.recentReports[0].summary.eventsCountLabel, '2 события');
   assert.equal(dashboard.recentReports[0].summary.photosCountLabel, '5 фото');

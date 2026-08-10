@@ -1,0 +1,191 @@
+﻿<%- include('partials/head', { pageTitle }) %>
+<div class="app-shell">
+  <%- include('partials/sidebar', { activePage: 'problems', showDashboardLink }) %>
+
+  <main class="app-main app-main-report-dashboard">
+    <section class="report-dashboard-page" data-problems-page>
+      <div class="report-dashboard-shell problems-page">
+        <header class="report-dashboard-head reports-page-head">
+          <div>
+            <h1>Проблемы</h1>
+            <p>Контроль состояния проблемных партий.</p>
+          </div>
+        </header>
+
+        <% if (!problems.hasCases) { %>
+          <section class="dashboard-card">
+            <div class="dashboard-inline-empty">Проблемные партии появятся после загрузки отчетов с проблемными сценариями.</div>
+          </section>
+        <% } else { %>
+          <section class="dashboard-card reports-filters-card" aria-label="Фильтры проблем">
+            <form class="reports-filters-form problems-filters-form" method="get" action="/problems">
+              <label class="reports-filter-field">
+                <span>Сотрудник</span>
+                <select name="employee">
+                  <% problems.filters.employeeOptions.forEach((option) => { %>
+                    <option value="<%= option.value %>" <%= problems.filters.employee === option.value ? 'selected' : '' %>><%= option.label %></option>
+                  <% }) %>
+                </select>
+              </label>
+
+              <label class="reports-filter-field">
+                <span>Тип проблемы</span>
+                <select name="type">
+                  <% problems.filters.typeOptions.forEach((option) => { %>
+                    <option value="<%= option.value %>" <%= problems.filters.type === option.value ? 'selected' : '' %>><%= option.label %></option>
+                  <% }) %>
+                </select>
+              </label>
+
+              <label class="reports-filter-field">
+                <span>Риск</span>
+                <select name="risk">
+                  <% problems.filters.riskOptions.forEach((option) => { %>
+                    <option value="<%= option.value %>" <%= problems.filters.risk === option.value ? 'selected' : '' %>><%= option.label %></option>
+                  <% }) %>
+                </select>
+              </label>
+
+              <label class="reports-filter-field">
+                <span>Статус</span>
+                <select name="status">
+                  <% problems.filters.statusOptions.forEach((option) => { %>
+                    <option value="<%= option.value %>" <%= problems.filters.status === option.value ? 'selected' : '' %>><%= option.label %></option>
+                  <% }) %>
+                </select>
+              </label>
+
+              <button type="submit" class="button reports-filter-submit">Показать</button>
+            </form>
+          </section>
+
+          <section class="report-kpi-grid" aria-label="KPI проблем">
+            <% problems.kpis.forEach((metric) => { %>
+              <article class="dashboard-stat dashboard-stat-<%= metric.key === 'active' || metric.key === 'highRisk' ? 'warning' : 'dark' %>">
+                <span class="dashboard-stat-label"><%= metric.label %></span>
+                <strong><%= metric.value %></strong>
+              </article>
+            <% }) %>
+          </section>
+
+          <section class="report-sections-grid problems-sections-grid">
+            <article class="dashboard-card report-section-card">
+              <div class="dashboard-card-head">
+                <div>
+                  <h2><%= problems.selectedStatusLabel %></h2>
+                  <p>Текущие problem cases без дублей по snapshot.</p>
+                </div>
+              </div>
+
+              <% if (problems.hasResults) { %>
+                <div class="problems-case-list">
+                  <% problems.problemCases.forEach((problemCase) => { %>
+                    <article class="problems-case-card problems-case-card-<%= problemCase.statusKey %>">
+                      <div class="problems-case-head">
+                        <div class="problems-case-title">
+                          <strong><%= problemCase.title %></strong>
+                          <span><%= problemCase.code %> · <%= problemCase.stage %></span>
+                        </div>
+                        <span class="batch-list-status <%= problemCase.statusKey === 'resolved' ? 'batch-list-status-ok' : 'batch-list-status-alert' %>"><%= problemCase.statusLabel %></span>
+                      </div>
+
+                      <div class="batch-list-meta problems-case-meta">
+                        <span>Проблема: <strong><%= problemCase.problemType %></strong></span>
+                        <span>Риск: <strong><%= problemCase.riskLabel %></strong></span>
+                        <span>Сотрудник: <strong><%= problemCase.employeeName %></strong></span>
+                        <span>Дата: <strong><%= problemCase.reportedAtLabel %></strong></span>
+                      </div>
+
+                      <dl class="problems-case-grid">
+                        <div><dt>Количество в партии</dt><dd><%= problemCase.currentQuantity %> шт.</dd></div>
+                        <div><dt>С активной проблемой</dt><dd><%= problemCase.activeProblemQuantity %> шт.</dd></div>
+                        <div><dt>Без изоляции</dt><dd><%= problemCase.unisolatedProblemQuantity %> шт.</dd></div>
+                        <div><dt>Статус изоляции</dt><dd><%= problemCase.isolationStatusLabel %></dd></div>
+                        <div><dt>Состояние здоровья</dt><dd><%= problemCase.healthStatusLabel %></dd></div>
+                        <div><dt>Зафиксировал</dt><dd><%= problemCase.reportedBy %></dd></div>
+                      </dl>
+
+                      <% if (problemCase.originType === 'problemisolation') { %>
+                        <div class="problems-case-note">
+                          <strong>Изолированная партия.</strong>
+                          <% if (problemCase.parentBatch) { %>
+                            <span>Происхождение: <%= problemCase.parentBatch.title %> · <%= problemCase.parentBatch.code %></span>
+                          <% } else { %>
+                            <span>Происхождение: родительская партия не найдена в текущем dataset.</span>
+                          <% } %>
+                        </div>
+                      <% } else if (problemCase.parentBatch) { %>
+                        <div class="problems-case-note">
+                          <strong>Связанная партия.</strong>
+                          <span>Родительская партия: <%= problemCase.parentBatch.title %> · <%= problemCase.parentBatch.code %></span>
+                        </div>
+                      <% } %>
+
+                      <% if (problemCase.latestActionTitle) { %>
+                        <div class="problems-case-timeline">Последнее действие: <strong><%= problemCase.latestActionTitle %></strong> · <%= problemCase.latestActionAtLabel %></div>
+                      <% } %>
+
+                      <div class="problems-case-actions">
+                        <a class="dashboard-card-link" href="<%= problemCase.passportUrl %>">Открыть паспорт</a>
+                        <a class="dashboard-card-link" href="<%= problemCase.journalUrl %>">Открыть журнал</a>
+                      </div>
+                    </article>
+                  <% }) %>
+                </div>
+              <% } else { %>
+                <div class="dashboard-inline-empty">По выбранным фильтрам problem cases не найдены.</div>
+              <% } %>
+            </article>
+
+            <article class="dashboard-card report-section-card">
+              <div class="dashboard-card-head">
+                <div>
+                  <h2>По типам проблем</h2>
+                  <p>Сводка по отфильтрованному набору.</p>
+                </div>
+              </div>
+
+              <% if (problems.problemTypeSummary.length) { %>
+                <div class="report-stage-summary">
+                  <% problems.problemTypeSummary.forEach((item) => { %>
+                    <article class="report-stage-row">
+                      <strong><%= item.label %></strong>
+                      <span><%= item.count %> шт.</span>
+                      <span></span>
+                    </article>
+                  <% }) %>
+                </div>
+              <% } else { %>
+                <div class="dashboard-inline-empty">Нет данных по типам проблем.</div>
+              <% } %>
+            </article>
+
+            <article class="dashboard-card report-section-card">
+              <div class="dashboard-card-head">
+                <div>
+                  <h2>По уровню риска</h2>
+                  <p>Приоритет от критического к низкому.</p>
+                </div>
+              </div>
+
+              <% if (problems.riskSummary.length) { %>
+                <div class="report-stage-summary">
+                  <% problems.riskSummary.forEach((item) => { %>
+                    <article class="report-stage-row">
+                      <strong><%= item.label %></strong>
+                      <span><%= item.count %> шт.</span>
+                      <span></span>
+                    </article>
+                  <% }) %>
+                </div>
+              <% } else { %>
+                <div class="dashboard-inline-empty">Нет данных по рискам.</div>
+              <% } %>
+            </article>
+          </section>
+        <% } %>
+      </div>
+    </section>
+  </main>
+</div>
+<%- include('partials/footer') %>

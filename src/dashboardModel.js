@@ -1,6 +1,7 @@
-const { buildBatchCatalog } = require('./stagesPageModel');
+﻿const { buildBatchCatalog } = require('./stagesPageModel');
 const { formatCountLabel } = require('./formatCountLabel');
 const { resolveReportEmployeeKey } = require('./reportsPageModel');
+const { normalizeRole } = require('./roleLabel');
 
 const PERIOD_OPTIONS = [
   ['today', 'Сегодня'],
@@ -604,7 +605,7 @@ function buildRecentReport(report, reports = []) {
     reportId: report.reportId,
     author,
     employeeKey: resolveReportEmployeeKey(report, reports),
-    role: String(user.role || '').trim() || 'Роль не указана',
+    role: normalizeRole(user.role || ''),
     displayCreatedAt: report.displayCreatedAt || formatDateTime(toTimestamp(report.createdAt)),
     summary: {
       cardsCount,
@@ -889,10 +890,6 @@ function normalizeType(value) {
 
 function normalizeText(value) {
   return String(value || '').trim().toLowerCase();
-}
-
-function normalizeRole(value) {
-  return String(value || '').trim() || 'Роль не указана';
 }
 
 function isUnknownAuthor(value) {

@@ -160,4 +160,13 @@ run('uses readable fallback role when employee role contains only spaces', () =>
   assert.equal(dashboard.employee.role, '\u0420\u043e\u043b\u044c \u043d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d\u0430');
 });
 
+run('translates known employee roles to Russian', () => {
+  const report = buildReport();
+  report.user.role = 'greenhouse';
+
+  const dashboard = buildReportDashboardModel(report);
+
+  assert.equal(dashboard.employee.role, '\u0421\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a \u0442\u0435\u043f\u043b\u0438\u0446\u044b');
+});
+
 if (process.exitCode) process.exit(process.exitCode);

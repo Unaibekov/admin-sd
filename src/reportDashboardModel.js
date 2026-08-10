@@ -1,11 +1,13 @@
-const {
+﻿const {
   getLatestBatchSnapshots,
   buildUniqueEventIndex,
   getAttentionBatches,
+  buildAttentionEvents,
   getProductionMetrics,
   getRecentPhotos,
   isUserInitiatedEvent
 } = require('./dashboardModel');
+const { normalizeRole } = require('./roleLabel');
 
 function buildReportDashboardModel(report) {
   const sourceReports = report ? [report] : [];
@@ -16,11 +18,15 @@ function buildReportDashboardModel(report) {
   const eventPhotos = getRecentPhotos(events);
   const recentPhotos = mergeReportPhotos(report, batches, eventPhotos);
   const summary = report && report.summary ? report.summary : {};
+  const reportId = report ? report.reportId : '';
   const employee = resolveEmployee(report);
   const importInfo = formatImportInfo(report && report.createdAt);
+  const lossesCount = productionMetrics.losses ? productionMetrics.losses.value : 0;
+  const salesCount = productionMetrics.sales ? productionMetrics.sales.value : 0;
+  const photosCount = readCount(summary.photosCount, recentPhotos.length);
 
   return {
-    reportId: report ? report.reportId : '',
+    reportId,
     employee,
     importDate: importInfo.date,
     importTime: importInfo.time,
@@ -28,33 +34,18 @@ function buildReportDashboardModel(report) {
       { key: 'cards', label: 'Карточек', note: 'В этом отчете', value: batches.length, tone: 'dark' },
       { key: 'events', label: 'Событий', note: 'В этом отчете', value: events.length, tone: 'accent' },
       { key: 'problems', label: 'Проблем', note: 'Требуют внимания', value: attentionBatches.length, tone: 'warning' },
-      { key: 'losses', label: 'Потерь', note: 'Зафиксировано в отчете', value: productionMetrics.losses ? productionMetrics.losses.value : 0, tone: 'danger' },
-      { key: 'sales', label: 'Продаж', note: 'Зафиксировано в отчете', value: productionMetrics.sales ? productionMetrics.sales.value : 0, tone: 'success' },
-      { key: 'photos', label: 'Фото', note: 'Прикреплено к отчету', value: Number(summary.photosCount) || recentPhotos.length, tone: 'accent' }
+      { key: 'losses', label: 'Потерь', note: 'Зафиксировано в отчете', value: lossesCount, tone: 'danger' },
+      { key: 'sales', label: 'Продаж', note: 'Зафиксировано в отчете', value: salesCount, tone: 'success' },
+      { key: 'photos', label: 'Фото', note: 'Прикреплено к отчету', value: photosCount, tone: 'accent' }
     ],
     summary: {
       cardsCount: batches.length,
       eventsCount: events.length,
-      photosCount: Number(summary.photosCount) || recentPhotos.length,
+      photosCount,
       problemsCount: attentionBatches.length
     },
     recentEvents: events.filter(isUserInitiatedEvent),
-    attentionEvents: attentionBatches.map((batch) => ({
-      ...(batch.latestProblemEvent || {
-        type: 'problem',
-        title: batch.latestProblemTitle || batch.reason,
-        culture: batch.title,
-        code: batch.code,
-        stage: batch.stage,
-        createdBy: batch.latestProblemAuthor || '',
-        timestamp: batch.latestProblemAt,
-        problem: batch.reason,
-        risk: batch.risk,
-        problemDescription: batch.problemDescription
-      }),
-      batchKey: batch.batchKey,
-      cardId: batch.cardId
-    })),
+    attentionEvents: buildAttentionEvents(attentionBatches),
     batches,
     recentPhotos
   };
@@ -62,17 +53,29 @@ function buildReportDashboardModel(report) {
 
 function resolveEmployee(report) {
   const user = report && report.user ? report.user : {};
-  const name = String(user.displayName || [user.firstName, user.lastName].filter(Boolean).join(' ') || 'Ильдар Унайбеков').trim();
+  const displayName = String(user.displayName || '').trim();
+  const fullName = [user.firstName, user.lastName].filter(Boolean).join(' ').trim();
+  const author = String(report && report.author || '').trim();
+  const userName = String(report && report.userName || '').trim();
+  const name = String(
+    displayName
+      || fullName
+      || author
+      || userName
+      || 'Неизвестно'
+  ).trim();
+
   return {
     name,
-    role: 'Агроном',
-    department: 'Тепличный комплекс №1'
+    role: normalizeRole(user.role || ''),
+    department: ''
   };
 }
 
 function mergeReportPhotos(report, batches, eventPhotos) {
   const photos = new Map((eventPhotos || []).map((photo) => [photo.url, photo]));
   const getPhotoUrl = report && typeof report.getPhotoUrl === 'function' ? report.getPhotoUrl.bind(report) : () => '';
+  const employeeName = resolveEmployee(report).name;
 
   for (const batch of batches) {
     for (const photoPath of batch.photoFiles || []) {
@@ -83,7 +86,7 @@ function mergeReportPhotos(report, batches, eventPhotos) {
         label: `${batch.code} · ${batch.title}`,
         code: batch.code,
         eventTitle: 'Фото партии',
-        createdBy: '',
+        createdBy: employeeName,
         timestamp: batch.snapshotAt || 0,
         dateLabel: formatImportDate(batch.updatedAt || batch.createdAt)
       });
@@ -94,7 +97,8 @@ function mergeReportPhotos(report, batches, eventPhotos) {
 }
 
 function formatImportInfo(value) {
-  const date = new Date(value || 0);
+  if (!value) return { date: 'Не указано', time: '—' };
+  const date = new Date(value);
   if (Number.isNaN(date.getTime())) return { date: 'Не указано', time: '—' };
   return {
     date: new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: 'long', year: 'numeric', timeZone: 'Europe/Moscow' }).format(date),
@@ -105,6 +109,15 @@ function formatImportInfo(value) {
 function formatImportDate(value) {
   const info = formatImportInfo(value);
   return `${info.date} · ${info.time}`;
+}
+
+function readCount(value, fallback) {
+  if (value === undefined || value === null || value === '') {
+    return fallback;
+  }
+
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
 }
 
 module.exports = { buildReportDashboardModel, resolveEmployee, mergeReportPhotos };

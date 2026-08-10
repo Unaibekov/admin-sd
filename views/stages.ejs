@@ -2,12 +2,21 @@
 <% const selected = stages.selectedCard; %>
 <% const formatCountValue = (value) => value === 0 || value === '0' ? '0' : (value || '?'); %>
 <% const selectedEmployee = (stages.employees || []).find((item) => item.key === stages.selectedEmployee); %>
+<% const selectedStatus = (stages.statuses || []).find((item) => item.key === stages.selectedStatus); %>
+<% const selectedStage = (stages.stages || []).find((item) => item.key === stages.selectedStage); %>
+<% const summaryParts = [selectedEmployee ? selectedEmployee.label : 'Все сотрудники', selectedStatus && stages.selectedStatus !== 'all' ? selectedStatus.label : 'Все статусы'].filter(Boolean); %>
+<% const clearStagesUrl = () => {
+  const params = new URLSearchParams();
+  if (stages.selectedReportId) params.set('reportId', stages.selectedReportId);
+  return `/stages${params.toString() ? `?${params.toString()}` : ''}`;
+}; %>
 <% const stagesUrl = (updates = {}) => {
   const params = new URLSearchParams();
-  const values = { q: stages.search, stage: stages.selectedStage, employee: stages.selectedEmployee, reportId: stages.selectedReportId, ...updates };
+  const values = { q: stages.search, stage: stages.selectedStage, employee: stages.selectedEmployee, status: stages.selectedStatus, reportId: stages.selectedReportId, ...updates };
   if (values.q) params.set('q', values.q);
   if (values.stage && values.stage !== 'all') params.set('stage', values.stage);
   if (values.employee && values.employee !== 'all') params.set('employee', values.employee);
+  if (values.status && values.status !== 'all') params.set('status', values.status);
   if (values.reportId) params.set('reportId', values.reportId);
   if (values.batchId) params.set('batchId', values.batchId);
   if (values.tab) params.set('tab', values.tab);
@@ -34,12 +43,13 @@
               <% if (stages.selectedReportId) { %><input type="hidden" name="reportId" value="<%= stages.selectedReportId %>"><% } %>
               <% if (stages.selectedStage !== 'all') { %><input type="hidden" name="stage" value="<%= stages.selectedStage %>"><% } %>
               <% if (stages.selectedEmployee !== 'all') { %><input type="hidden" name="employee" value="<%= stages.selectedEmployee %>"><% } %>
+              <% if (stages.selectedStatus !== 'all') { %><input type="hidden" name="status" value="<%= stages.selectedStatus %>"><% } %>
             </form>
 
             <div class="batches-filter-row">
             <div class="batches-filter" data-batches-filter>
-              <button type="button" class="batches-filter-toggle" data-batches-filter-toggle aria-expanded="false">
-                <span>Сотрудники</span>
+              <button type="button" class="batches-filter-toggle <%= stages.selectedEmployee !== 'all' ? 'has-value' : '' %>" data-batches-filter-toggle aria-expanded="false">
+                <span class="batches-filter-toggle-copy">Сотрудники</span>
               </button>
             <nav class="batches-filter-menu" data-batches-filter-menu hidden aria-label="Фильтр по сотрудникам">
               <% stages.employees.forEach((item) => { %>
@@ -52,8 +62,8 @@
             </div>
 
             <div class="batches-filter" data-batches-filter>
-              <button type="button" class="batches-filter-toggle" data-batches-filter-toggle aria-expanded="false">
-                <span>Стадии</span>
+              <button type="button" class="batches-filter-toggle <%= stages.selectedStage !== 'all' ? 'has-value' : '' %>" data-batches-filter-toggle aria-expanded="false">
+                <span class="batches-filter-toggle-copy">Стадии</span>
               </button>
             <nav class="batches-filter-menu" data-batches-filter-menu hidden aria-label="Фильтр по стадиям">
               <% stages.stages.forEach((item) => { %>
@@ -64,11 +74,30 @@
               <% }) %>
             </nav>
             </div>
+
+            <div class="batches-filter" data-batches-filter>
+              <button type="button" class="batches-filter-toggle <%= stages.selectedStatus !== 'all' ? 'has-value' : '' %>" data-batches-filter-toggle aria-expanded="false">
+                <span class="batches-filter-toggle-copy">Статус</span>
+              </button>
+            <nav class="batches-filter-menu" data-batches-filter-menu hidden aria-label="Фильтр по статусу">
+              <% stages.statuses.forEach((item) => { %>
+                <a class="batches-stage-filter-item <%= stages.selectedStatus === item.key ? 'active' : '' %>" href="<%= stagesUrl({ status: item.key }) %>">
+                  <span><%= item.label %></span>
+                  <strong><%= item.count %></strong>
+                </a>
+              <% }) %>
+            </nav>
+            </div>
             </div>
           </div>
           <div class="batches-selected-stage-head">
-            <h2 class="batches-selected-stage-title"><%= stages.stages.find((item) => item.key === stages.selectedStage).label %></h2>
-            <p><%= selectedEmployee ? selectedEmployee.label : 'Все сотрудники' %></p>
+            <div>
+              <h2 class="batches-selected-stage-title"><%= selectedStage ? selectedStage.label : 'Все партии' %></h2>
+              <p><%= summaryParts.join(' • ') %></p>
+            </div>
+            <% if (stages.hasActiveFilters) { %>
+              <a class="batches-reset-link" href="<%= clearStagesUrl() %>">Сбросить фильтры</a>
+            <% } %>
           </div>
 
           <div class="batches-list" aria-label="Список партий">
@@ -82,11 +111,12 @@
                       <span>Остаток: <%= formatCountValue(card.currentQuantity) %> шт.</span>
                       <% if (Number(card.daysInStage) > 0) { %><span>Дней на стадии: <%= card.daysInStage %></span><% } %>
                     </span>
+                    <span class="batch-list-status batch-list-status-<%= card.visualStatusTone %>"><%= card.visualStatusLabel %></span>
                   </span>
                 </a>
               <% }) %>
             <% } else { %>
-              <div class="empty-state batches-empty-list"><h2>Партии не найдены</h2><p>Измените поиск или стадию.</p></div>
+              <div class="empty-state batches-empty-list"><h2>Партии не найдены</h2><p>Измените параметры поиска или фильтры.</p></div>
             <% } %>
           </div>
         </aside>

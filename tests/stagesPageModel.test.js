@@ -948,6 +948,39 @@ run('uses a readable dash when stages date is missing', () => {
   assert.equal(formatDate(''), '—');
 });
 
+run('builds employee-scoped stage and status counters from the same filtered subset', () => {
+  const annaGreenhouse = buildReport({ reportId: 'report-anna-greenhouse', deviceId: 'device-anna-greenhouse', updatedAt: '2026-07-15T09:00:00.000Z', quantity: 12, eventId: 'employee-anna-greenhouse' });
+  annaGreenhouse.user = { userId: 'anna', displayName: 'Anna Ivanova' };
+  annaGreenhouse.raw.cards[0].stage = 'Теплица';
+  annaGreenhouse.raw.cards[0].batchStatus = 'active';
+  annaGreenhouse.cards[0] = { ...annaGreenhouse.raw.cards[0] };
+
+  const annaQuarantine = buildReport({ reportId: 'report-anna-quarantine', deviceId: 'device-anna-quarantine', updatedAt: '2026-07-15T10:00:00.000Z', quantity: 8, eventId: 'employee-anna-quarantine' });
+  annaQuarantine.user = { userId: 'anna', displayName: 'Anna Ivanova' };
+  annaQuarantine.raw.cards[0].stage = 'Закалка';
+  annaQuarantine.raw.cards[0].batchStatus = 'quarantine';
+  annaQuarantine.cards[0] = { ...annaQuarantine.raw.cards[0] };
+
+  const petrProblem = buildReport({ reportId: 'report-petr-problem', deviceId: 'device-petr-problem', updatedAt: '2026-07-15T11:00:00.000Z', quantity: 6, eventId: 'employee-petr-problem' });
+  petrProblem.user = { userId: 'petr', displayName: 'Petr Petrov' };
+  petrProblem.raw.cards[0].stage = 'Клонирование';
+  petrProblem.raw.cards[0].batchStatus = 'problem';
+  petrProblem.raw.cards[0].activeProblemQuantity = 3;
+  petrProblem.cards[0] = { ...petrProblem.raw.cards[0] };
+
+  const model = buildStagesPageModel([annaGreenhouse, annaQuarantine, petrProblem], { employee: 'anna' });
+
+  assert.equal(model.cards.length, 2);
+  assert.equal(model.stages.find((item) => item.key === 'all').count, 2);
+  assert.equal(model.stages.find((item) => item.key === 'Теплица').count, 1);
+  assert.equal(model.stages.find((item) => item.key === 'Закалка').count, 1);
+  assert.equal(model.stages.find((item) => item.key === 'Клонирование').count, 0);
+  assert.equal(model.statuses.find((item) => item.key === 'all').count, 2);
+  assert.equal(model.statuses.find((item) => item.key === 'active').count, 1);
+  assert.equal(model.statuses.find((item) => item.key === 'quarantine').count, 1);
+  assert.equal(model.statuses.find((item) => item.key === 'problem').count, 0);
+});
+
 if (process.exitCode) {
   process.exit(process.exitCode);
 }
@@ -975,4 +1008,131 @@ run('keeps isolation metadata and batch relations in batch model', () => {
   assert.equal(isolatedCard.originLabel, 'Изолированная партия');
   assert.equal(isolatedCard.healthStatusLabel, 'Проблема активна');
   assert.equal(isolatedCard.isolationStatusLabel, 'Изолирована');
+});
+run('filters batches by status=active using the current working-state semantics', () => {
+  const active = buildReport({ reportId: 'report-status-active', deviceId: 'device-a', updatedAt: '2026-07-18T09:00:00.000Z', quantity: 10, eventId: 'status-active-event' });
+  Object.assign(active.raw.cards[0], { cardId: 'active-card', code: 'ACTIVE-1', stage: 'РўРµРїР»РёС†Р°', batchStatus: 'active', healthStatus: 'healthy', activeProblemQuantity: 0, events: [] });
+  active.cards[0] = { ...active.raw.cards[0] };
+  const completed = buildReport({ reportId: 'report-status-completed', deviceId: 'device-b', updatedAt: '2026-07-18T10:00:00.000Z', quantity: 10, eventId: 'status-completed-event' });
+  Object.assign(completed.raw.cards[0], { cardId: 'completed-card', code: 'DONE-1', stage: 'РђРґР°РїС‚Р°С†РёСЏ', batchStatus: 'completed', healthStatus: 'healthy', activeProblemQuantity: 0, events: [] });
+  completed.cards[0] = { ...completed.raw.cards[0] };
+
+  const model = buildStagesPageModel([active, completed], { status: 'active' });
+
+  assert.equal(model.selectedStatus, 'active');
+  assert.deepEqual(model.cards.map((card) => card.code), ['ACTIVE-1']);
+});
+
+run('filters batches by status=problem only when the problem is currently active', () => {
+  const activeProblem = buildReport({ reportId: 'report-status-problem-active', deviceId: 'device-a', updatedAt: '2026-07-19T09:00:00.000Z', quantity: 10, eventId: 'status-problem-active-event' });
+  Object.assign(activeProblem.raw.cards[0], { cardId: 'problem-card', code: 'PROBLEM-1', stage: 'РўРµРїР»РёС†Р°', batchStatus: 'problem', healthStatus: 'infected', activeProblemQuantity: 4, events: [{ eventId: 'problem-event', type: 'problem', createdAt: '2026-07-19T09:00:00.000Z' }] });
+  activeProblem.cards[0] = { ...activeProblem.raw.cards[0] };
+  const solvedProblem = buildReport({ reportId: 'report-status-problem-solved', deviceId: 'device-b', updatedAt: '2026-07-19T10:00:00.000Z', quantity: 10, eventId: 'status-problem-solved-event' });
+  Object.assign(solvedProblem.raw.cards[0], { cardId: 'solved-card', code: 'SOLVED-1', stage: 'РўРµРїР»РёС†Р°', batchStatus: 'active', healthStatus: 'resolved', activeProblemQuantity: 0, isolationStatus: 'released', events: [{ eventId: 'historical-problem', type: 'problem', createdAt: '2026-07-18T09:00:00.000Z' }, { eventId: 'problem-recovery', type: 'problemRecovery', createdAt: '2026-07-19T08:00:00.000Z', activeProblemQuantity: 0, healthStatus: 'healthy', isolationStatus: 'released' }] });
+  solvedProblem.cards[0] = { ...solvedProblem.raw.cards[0] };
+
+  const model = buildStagesPageModel([activeProblem, solvedProblem], { status: 'problem' });
+
+  assert.equal(model.selectedStatus, 'problem');
+  assert.deepEqual(model.cards.map((card) => card.code), ['PROBLEM-1']);
+});
+
+run('filters batches by status=isolated using current isolation state', () => {
+  const isolated = buildReport({ reportId: 'report-status-isolated', deviceId: 'device-a', updatedAt: '2026-07-20T09:00:00.000Z', quantity: 10, eventId: 'status-isolated-event' });
+  Object.assign(isolated.raw.cards[0], { cardId: 'isolated-card', code: 'ISO-1', stage: 'РўРµРїР»РёС†Р°', batchStatus: 'quarantine', originType: 'problemIsolation', isolationStatus: 'isolated', healthStatus: 'infected', activeProblemQuantity: 3, events: [] });
+  isolated.cards[0] = { ...isolated.raw.cards[0] };
+  const released = buildReport({ reportId: 'report-status-released', deviceId: 'device-b', updatedAt: '2026-07-20T10:00:00.000Z', quantity: 10, eventId: 'status-released-event' });
+  Object.assign(released.raw.cards[0], { cardId: 'released-card', code: 'REL-1', stage: 'РўРµРїР»РёС†Р°', batchStatus: 'quarantine', originType: 'problemIsolation', isolationStatus: 'released', healthStatus: 'healthy', activeProblemQuantity: 0, events: [] });
+  released.cards[0] = { ...released.raw.cards[0] };
+
+  const model = buildStagesPageModel([isolated, released], { status: 'isolated' });
+
+  assert.equal(model.selectedStatus, 'isolated');
+  assert.deepEqual(model.cards.map((card) => card.code), ['ISO-1']);
+});
+
+run('filters batches by status=quarantine using current quarantine state', () => {
+  const quarantined = buildReport({ reportId: 'report-status-quarantine', deviceId: 'device-a', updatedAt: '2026-07-21T09:00:00.000Z', quantity: 10, eventId: 'status-quarantine-event' });
+  Object.assign(quarantined.raw.cards[0], { cardId: 'quarantine-card', code: 'Q-1', stage: 'РўРµРїР»РёС†Р°', batchStatus: 'quarantine', healthStatus: 'infected', activeProblemQuantity: 2, events: [] });
+  quarantined.cards[0] = { ...quarantined.raw.cards[0] };
+  const released = buildReport({ reportId: 'report-status-quarantine-released', deviceId: 'device-b', updatedAt: '2026-07-21T10:00:00.000Z', quantity: 10, eventId: 'status-quarantine-released-event' });
+  Object.assign(released.raw.cards[0], { cardId: 'quarantine-released-card', code: 'Q-REL-1', stage: 'РўРµРїР»РёС†Р°', batchStatus: 'quarantine', originType: 'problemIsolation', isolationStatus: 'released', healthStatus: 'healthy', activeProblemQuantity: 0, events: [] });
+  released.cards[0] = { ...released.raw.cards[0] };
+
+  const model = buildStagesPageModel([quarantined, released], { status: 'quarantine' });
+
+  assert.equal(model.selectedStatus, 'quarantine');
+  assert.deepEqual(model.cards.map((card) => card.code), ['Q-1']);
+});
+
+run('filters batches by completed and sold_archived final states', () => {
+  const completed = buildReport({ reportId: 'report-status-completed-only', deviceId: 'device-a', updatedAt: '2026-07-22T09:00:00.000Z', quantity: 10, eventId: 'status-completed-only-event' });
+  Object.assign(completed.raw.cards[0], { cardId: 'completed-card', code: 'DONE-2', stage: 'РђРґР°РїС‚Р°С†РёСЏ', batchStatus: 'completed', healthStatus: 'healthy', activeProblemQuantity: 0, events: [] });
+  completed.cards[0] = { ...completed.raw.cards[0] };
+  const archived = buildReport({ reportId: 'report-status-archived-only', deviceId: 'device-b', updatedAt: '2026-07-22T10:00:00.000Z', quantity: 10, eventId: 'status-archived-only-event' });
+  Object.assign(archived.raw.cards[0], { cardId: 'archived-card', code: 'ARCH-1', stage: 'Р’С‹СЃР°РґРєР°', batchStatus: 'archived', healthStatus: 'healthy', activeProblemQuantity: 0, events: [] });
+  archived.cards[0] = { ...archived.raw.cards[0] };
+
+  const completedModel = buildStagesPageModel([completed, archived], { status: 'completed' });
+  const finalModel = buildStagesPageModel([completed, archived], { status: 'sold_archived' });
+
+  assert.deepEqual(completedModel.cards.map((card) => card.code), ['DONE-2']);
+  assert.deepEqual(finalModel.cards.map((card) => card.code), ['ARCH-1']);
+});
+
+run('combines employee, stage and status filters', () => {
+  const matching = buildReport({ reportId: 'report-combined-match', deviceId: 'device-a', updatedAt: '2026-07-23T09:00:00.000Z', quantity: 10, eventId: 'combined-match-event' });
+  matching.user = { userId: 'anna', displayName: 'Anna Ivanova' };
+  Object.assign(matching.raw.cards[0], { cardId: 'combined-card', code: 'COMBINED-1', stage: 'РўРµРїР»РёС†Р°', batchStatus: 'problem', healthStatus: 'infected', activeProblemQuantity: 2, events: [] });
+  matching.cards[0] = { ...matching.raw.cards[0] };
+  const otherEmployee = buildReport({ reportId: 'report-combined-other', deviceId: 'device-b', updatedAt: '2026-07-23T10:00:00.000Z', quantity: 10, eventId: 'combined-other-event' });
+  otherEmployee.user = { userId: 'petr', displayName: 'Petr Petrov' };
+  Object.assign(otherEmployee.raw.cards[0], { cardId: 'combined-card-2', code: 'COMBINED-2', stage: 'РўРµРїР»РёС†Р°', batchStatus: 'problem', healthStatus: 'infected', activeProblemQuantity: 2, events: [] });
+  otherEmployee.cards[0] = { ...otherEmployee.raw.cards[0] };
+
+  const model = buildStagesPageModel([matching, otherEmployee], { employee: 'anna', stage: 'РўРµРїР»РёС†Р°', status: 'problem' });
+
+  assert.equal(model.cards.length, 1);
+  assert.equal(model.cards[0].code, 'COMBINED-1');
+});
+
+run('combines search with server-side filters', () => {
+  const match = buildReport({ reportId: 'report-search-filter-match', deviceId: 'device-a', updatedAt: '2026-07-24T09:00:00.000Z', quantity: 10, eventId: 'search-filter-match-event' });
+  Object.assign(match.raw.cards[0], { cardId: 'search-card-1', code: 'FILTER-1', cultureName: 'Birch', stage: 'РўРµРїР»РёС†Р°', batchStatus: 'active', healthStatus: 'healthy', activeProblemQuantity: 0, events: [] });
+  match.cards[0] = { ...match.raw.cards[0] };
+  const other = buildReport({ reportId: 'report-search-filter-other', deviceId: 'device-b', updatedAt: '2026-07-24T10:00:00.000Z', quantity: 10, eventId: 'search-filter-other-event' });
+  Object.assign(other.raw.cards[0], { cardId: 'search-card-2', code: 'FILTER-2', cultureName: 'Maple', stage: 'РўРµРїР»РёС†Р°', batchStatus: 'active', healthStatus: 'healthy', activeProblemQuantity: 0, events: [] });
+  other.cards[0] = { ...other.raw.cards[0] };
+
+  const model = buildStagesPageModel([match, other], { q: 'birch', status: 'active' });
+
+  assert.equal(model.cards.length, 1);
+  assert.equal(model.cards[0].code, 'FILTER-1');
+});
+
+run('clears selected batch when it no longer matches active filters', () => {
+  const active = buildReport({ reportId: 'report-selected-filter-active', deviceId: 'device-a', updatedAt: '2026-07-25T09:00:00.000Z', quantity: 10, eventId: 'selected-filter-active-event' });
+  Object.assign(active.raw.cards[0], { cardId: 'selected-active-card', code: 'ACTIVE-KEEP', stage: 'РўРµРїР»РёС†Р°', batchStatus: 'active', healthStatus: 'healthy', activeProblemQuantity: 0, events: [] });
+  active.cards[0] = { ...active.raw.cards[0] };
+  const completed = buildReport({ reportId: 'report-selected-filter-completed', deviceId: 'device-b', updatedAt: '2026-07-25T10:00:00.000Z', quantity: 10, eventId: 'selected-filter-completed-event' });
+  Object.assign(completed.raw.cards[0], { cardId: 'selected-completed-card', code: 'DONE-KEEP', stage: 'РђРґР°РїС‚Р°С†РёСЏ', batchStatus: 'completed', healthStatus: 'healthy', activeProblemQuantity: 0, events: [] });
+  completed.cards[0] = { ...completed.raw.cards[0] };
+
+  const model = buildStagesPageModel([active, completed], { status: 'completed', batchId: 'device-a::selected-active-card' });
+
+  assert.equal(model.selectedCard, null);
+  assert.equal(model.selectedBatchKey, '');
+  assert.deepEqual(model.cards.map((card) => card.code), ['DONE-KEEP']);
+});
+
+run('returns an empty state model when combined filters match no batches', () => {
+  const report = buildReport({ reportId: 'report-empty-state-status', deviceId: 'device-a', updatedAt: '2026-07-26T09:00:00.000Z', quantity: 10, eventId: 'empty-state-status-event' });
+  Object.assign(report.raw.cards[0], { cardId: 'empty-card', code: 'EMPTY-1', stage: 'РўРµРїР»РёС†Р°', batchStatus: 'active', healthStatus: 'healthy', activeProblemQuantity: 0, events: [] });
+  report.cards[0] = { ...report.raw.cards[0] };
+
+  const model = buildStagesPageModel([report], { q: 'missing', status: 'completed' });
+
+  assert.equal(model.cards.length, 0);
+  assert.equal(model.selectedCard, null);
+  assert.equal(model.hasActiveFilters, true);
 });

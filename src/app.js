@@ -5,6 +5,7 @@ const multer = require('multer');
 const os = require('os');
 const path = require('path');
 const { buildDashboard, buildFlashMessage } = require('./dashboardModel');
+const { buildProblemsPageModel } = require('./problemsPageModel');
 const { buildReportDashboardModel } = require('./reportDashboardModel');
 const { buildReportsPageModel, buildReportsContentModel, resolveReportEmployeeKey } = require('./reportsPageModel');
 const { buildJournalPageModel } = require('./journalPageModel');
@@ -226,16 +227,9 @@ function createApp() {
 
       for (const employee of employeeGroups) {
         const employeeReports = Array.isArray(employee.reports) ? employee.reports : [];
-        const selectedReportCandidates = [];
-        const requestedEmployeeReportId = employeeReports.find((report) => report.reportId === requestedReportId)?.reportId;
-        if (requestedEmployeeReportId) {
-          selectedReportCandidates.push(requestedEmployeeReportId);
-        }
-        employeeReports.forEach((report) => {
-          if (report && report.reportId && !selectedReportCandidates.includes(report.reportId)) {
-            selectedReportCandidates.push(report.reportId);
-          }
-        });
+        const selectedReportCandidates = employeeReports
+          .map((report) => report && report.reportId ? report.reportId : '')
+          .filter(Boolean);
 
         for (const candidateReportId of selectedReportCandidates) {
           selectedReport = await getReport(candidateReportId);
@@ -284,6 +278,24 @@ function createApp() {
         selectedReport,
         reportDashboard,
         reportsContent
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get('/problems', async (req, res, next) => {
+    try {
+      const reports = await listReports();
+      const detailedReports = await Promise.all(reports.map((report) => getReport(report.reportId)));
+      const loadedReports = detailedReports.filter(Boolean);
+      const problems = buildProblemsPageModel(loadedReports, req.query);
+
+      res.render('problems', {
+        pageTitle: 'Проблемы',
+        activePage: 'problems',
+        showDashboardLink: loadedReports.length > 0,
+        problems
       });
     } catch (error) {
       next(error);
