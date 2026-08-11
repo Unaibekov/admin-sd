@@ -1,4 +1,4 @@
-const assert = require('assert/strict');
+﻿const assert = require('assert/strict');
 const fs = require('fs/promises');
 const http = require('http');
 const os = require('os');
@@ -175,7 +175,21 @@ async function withTempDir(fn) {
   try {
     return await fn(tempDir);
   } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeDirWithRetry(tempDir);
+  }
+}
+
+async function removeDirWithRetry(targetPath, attempts = 5) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      await fs.rm(targetPath, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (!error || !['EPERM', 'EBUSY', 'ENOTEMPTY'].includes(error.code) || attempt === attempts - 1) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1)));
+    }
   }
 }
 
@@ -535,7 +549,6 @@ async function main() {
         const body = response.body.toString('utf8');
         assert.match(body, /<title>\u041e\u0442\u0447\u0435\u0442\u044b \| \u0410\u0434\u043c\u0438\u043d\u043a\u0430 Sadovnik Diary<\/title>/);
         assert.match(body, /<h1>\u041e\u0442\u0447\u0435\u0442\u044b<\/h1>/);
-        assert.match(body, /<h1>Отчеты<\/h1>/);
         assert.match(body, /\u0417\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u0435 \u0438\u043c\u043f\u043e\u0440\u0442\u0438\u0440\u043e\u0432\u0430\u043d\u043d\u044b\u0439 \u043e\u0442\u0447\u0435\u0442, \u0447\u0442\u043e\u0431\u044b \u043f\u043e\u0441\u043c\u043e\u0442\u0440\u0435\u0442\u044c \u0441\u0432\u043e\u0434\u043d\u0443\u044e \u0438\u043d\u0444\u043e\u0440\u043c\u0430\u0446\u0438\u044e\./);
         assertNoCommonMojibake(body);
       } finally {
@@ -550,14 +563,13 @@ async function main() {
       const report = buildValidReport('report-reports-zero-quantities');
       report.cards[0].currentQuantity = 0;
       await reportStore.processUploadedReport(buildZipFromReport(report), 'reports-zero-quantities.zip');
-
       const server = await startServer(createApp());
       try {
         const response = await request(server, '/reports?employee=local%20user');
         const body = response.body.toString('utf8');
         assert.equal(response.statusCode, 200);
-        assert.match(body, /\u041e\u0441\u0442\u0430\u0442\u043e\u043a: 0 \u0448\u0442\./);
-        assert.doesNotMatch(body, /\u041e\u0441\u0442\u0430\u0442\u043e\u043a: \u2014 \u0448\u0442\./);
+        assert.match(body, /dashboard-stat-label">\u0420\u0430\u0441\u0442\u0435\u043d\u0438\u044f<\/span>\s*<strong>0<\/strong>/);
+        assert.doesNotMatch(body, /\u2014 \u0448\u0442\./);
         assertNoCommonMojibake(body);
       } finally {
         server.close();
@@ -569,26 +581,25 @@ async function main() {
     await withTempDir(async (dataDir) => {
       const { reportStore, createApp } = loadModules(dataDir);
       await reportStore.processUploadedReport(buildZipFromReport(buildValidReport('report-reports-1')), 'reports.zip');
-
       const server = await startServer(createApp());
       try {
         const response = await request(server, '/reports?employee=local%20user');
         const body = response.body.toString('utf8');
         assert.equal(response.statusCode, 200);
-        assert.match(body, /<title>Отчеты \| Админка Sadovnik Diary<\/title>/);
-        assert.match(body, /\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a\u0430, \u0447\u0442\u043e\u0431\u044b \u043e\u0442\u043a\u0440\u044b\u0442\u044c \u0441\u0432\u043e\u0434\u043d\u0443\u044e \u0438\u043d\u0444\u043e\u0440\u043c\u0430\u0446\u0438\u044e \u043f\u043e \u0435\u0433\u043e \u043e\u0442\u0447\u0435\u0442\u0443\. \u041f\u043e \u0443\u043c\u043e\u043b\u0447\u0430\u043d\u0438\u044e \u043f\u043e\u043a\u0430\u0437\u044b\u0432\u0430\u0435\u0442\u0441\u044f \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0439 \u0438\u043c\u043f\u043e\u0440\u0442\./);
-        assert.match(body, /\u0421\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a/);
-        assert.match(body, /\u041f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0439 \u0438\u043c\u043f\u043e\u0440\u0442:/);
-        assert.match(body, /1 отчет(?!ов|а)/);
-        assert.match(body, /1 карточка/);
-        assert.match(body, /1 \u0441\u043e\u0431\u044b\u0442\u0438\u0435/);
-        assert.match(body, /\u0421\u043e\u0431\u044b\u0442\u0438\u044f \u043e\u0442\u0447\u0435\u0442\u0430/);
-        assert.match(body, /Проблемные партии отчета/);
-        assert.match(body, /\u041f\u0440\u043e\u0431\u043b\u0435\u043c\u043d\u044b\u0435 \u043f\u0430\u0440\u0442\u0438\u0438 \u043e\u0442\u0447\u0435\u0442\u0430/);
-        assert.match(body, /\u041a\u0430\u0440\u0442\u043e\u0447\u043a\u0438 \u043f\u0430\u0440\u0442\u0438\u0438/);
-        assert.match(body, /\u0424\u043e\u0442\u043e\u0433\u0440\u0430\u0444\u0438\u0438 \u043e\u0442\u0447\u0435\u0442\u0430/);
-        assert.match(body, /\u0414\u0430\u0442\u0430 \u0438\u043c\u043f\u043e\u0440\u0442\u0430/);
-        assert.match(body, /\u0412\u0440\u0435\u043c\u044f \u0438\u043c\u043f\u043e\u0440\u0442\u0430/);
+        assert.match(body, /<title>\u041e\u0442\u0447\u0435\u0442\u044b \| \u0410\u0434\u043c\u0438\u043d\u043a\u0430 Sadovnik Diary<\/title>/);
+        assert.match(body, /\u041f\u0440\u043e\u0441\u043c\u043e\u0442\u0440 \u043e\u0442\u0447\u0435\u0442\u043e\u0432 \u0441\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a\u043e\u0432\./);
+        assert.match(body, /<select name="employee" data-reports-employee>/);
+        assert.doesNotMatch(body, /<select name="reportId" data-reports-report/);
+        assert.doesNotMatch(body, /class="reports-meta-row"/);
+        assert.doesNotMatch(body, /\u041f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0439 \u043e\u0442\u0447\u0435\u0442/);
+        assert.doesNotMatch(body, /\u041e\u0442\u0447\u0435\u0442 \u043e\u0442 /);
+        assert.match(body, /dashboard-stat-label">\u041f\u0430\u0440\u0442\u0438\u0438<\/span>\s*<strong>1<\/strong>/);
+        assert.match(body, /dashboard-stat-label">\u0420\u0430\u0441\u0442\u0435\u043d\u0438\u044f<\/span>/);
+        assert.match(body, /dashboard-stat-label">\u0421\u043e\u0431\u044b\u0442\u0438\u044f<\/span>\s*<strong>1<\/strong>/);
+        assert.match(body, /\u0422\u0440\u0435\u0431\u0443\u044e\u0442 \u0432\u043d\u0438\u043c\u0430\u043d\u0438\u044f/);
+        assert.match(body, /\u0420\u0430\u0431\u043e\u0442\u0430 \u043f\u043e \u0441\u0442\u0430\u0434\u0438\u044f\u043c/);
+        assert.match(body, /\u041f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044f/);
+        assertNoCommonMojibake(body);
       } finally {
         server.close();
       }
@@ -643,7 +654,7 @@ async function main() {
 
       const server = await startServer(createApp());
       try {
-        const homeResponse = await request(server, '/');
+        const homeResponse = await request(server, '/?period=all');
         const homeBody = homeResponse.body.toString('utf8');
         assert.equal(homeResponse.statusCode, 200);
         assert.match(homeBody, /\/stages\?batchId=device-2%3A%3Acard-1&amp;tab=journal&amp;eventId=event-new#journal/);
@@ -668,9 +679,9 @@ async function main() {
         eventId: 'problem-event-1',
         type: 'problem',
         createdAt: '2026-08-01T10:05:00.000Z',
-        problemType: 'Карантин',
+        problemType: 'РљР°СЂР°РЅС‚РёРЅ',
         riskLevel: '\u041a\u0440\u0438\u0442\u0438\u0447\u0435\u0441\u043a\u0438\u0439',
-        problemDescription: 'Изолировать партию'
+        problemDescription: 'РР·РѕР»РёСЂРѕРІР°С‚СЊ РїР°СЂС‚РёСЋ'
       }];
 
       await reportStore.processUploadedReport(buildZipFromReport(report), 'dashboard-problem-links.zip');
@@ -855,10 +866,10 @@ async function main() {
         const reportsResponse = await request(server, '/reports?employee=same%20user&reportId=report-home-recent-old');
         const reportsBody = reportsResponse.body.toString('utf8');
         assert.equal(reportsResponse.statusCode, 200);
-        assert.match(reportsBody, /29 июля 2026/);
-        assert.doesNotMatch(reportsBody, /30 июля 2026/);
-        assert.match(reportsBody, /10 шт\./);
-        assert.doesNotMatch(reportsBody, /7 из 10 шт\./);
+        assert.match(reportsBody, /<option value="same user" selected>\s*Same User\s*<\/option>/);
+        assert.doesNotMatch(reportsBody, /<select name="reportId" data-reports-report/);
+        assert.match(reportsBody, /dashboard-stat-label">Растения<\/span>\s*<strong>7<\/strong>/);
+        assert.doesNotMatch(reportsBody, /dashboard-stat-label">Растения<\/span>\s*<strong>10<\/strong>/);
       } finally {
         server.close();
       }
@@ -902,14 +913,14 @@ async function main() {
         const firstReportsResponse = await request(server, '/reports?employee=same-user-a&reportId=report-home-same-name-a');
         const firstReportsBody = firstReportsResponse.body.toString('utf8');
         assert.equal(firstReportsResponse.statusCode, 200);
-        assert.match(firstReportsBody, /\u041e\u0441\u0442\u0430\u0442\u043e\u043a: 10 \u0448\u0442\./);
-        assert.doesNotMatch(firstReportsBody, /\u041e\u0441\u0442\u0430\u0442\u043e\u043a: 7 \u0448\u0442\./);
+        assert.match(firstReportsBody, /dashboard-stat-label">\u0420\u0430\u0441\u0442\u0435\u043d\u0438\u044f<\/span>\s*<strong>10<\/strong>/);
+        assert.doesNotMatch(firstReportsBody, /dashboard-stat-label">\u0420\u0430\u0441\u0442\u0435\u043d\u0438\u044f<\/span>\s*<strong>7<\/strong>/);
 
         const secondReportsResponse = await request(server, '/reports?employee=same-user-b&reportId=report-home-same-name-b');
         const secondReportsBody = secondReportsResponse.body.toString('utf8');
         assert.equal(secondReportsResponse.statusCode, 200);
-        assert.match(secondReportsBody, /\u041e\u0441\u0442\u0430\u0442\u043e\u043a: 7 \u0448\u0442\./);
-        assert.doesNotMatch(secondReportsBody, /\u041e\u0441\u0442\u0430\u0442\u043e\u043a: 10 \u0448\u0442\./);
+        assert.match(secondReportsBody, /dashboard-stat-label">\u0420\u0430\u0441\u0442\u0435\u043d\u0438\u044f<\/span>\s*<strong>7<\/strong>/);
+        assert.doesNotMatch(secondReportsBody, /dashboard-stat-label">\u0420\u0430\u0441\u0442\u0435\u043d\u0438\u044f<\/span>\s*<strong>10<\/strong>/);
       } finally {
         server.close();
       }
@@ -941,7 +952,7 @@ async function main() {
     });
   });
 
-  await run('keeps exact selected report link in the reports employee picker', async () => {
+  await run('does not render a report selector even when a legacy reportId link is opened', async () => {
     await withTempDir(async (dataDir) => {
       const { reportStore, createApp } = loadModules(dataDir);
       const olderReport = buildValidReport('report-reports-picker-old');
@@ -950,23 +961,22 @@ async function main() {
       olderReport.cards[0].createdAt = '2026-07-29T10:00:00.000Z';
       olderReport.cards[0].updatedAt = '2026-07-29T10:00:00.000Z';
       olderReport.cards[0].events[0].createdAt = '2026-07-29T10:05:00.000Z';
-
       const newerReport = buildValidReport('report-reports-picker-new');
       newerReport.createdAt = '2026-07-30T10:00:00.000Z';
       newerReport.user.displayName = 'Same User';
       newerReport.cards[0].createdAt = '2026-07-30T10:00:00.000Z';
       newerReport.cards[0].updatedAt = '2026-07-30T10:00:00.000Z';
       newerReport.cards[0].events[0].createdAt = '2026-07-30T10:05:00.000Z';
-
       await reportStore.processUploadedReport(buildZipFromReport(olderReport), 'reports-picker-old.zip');
       await reportStore.processUploadedReport(buildZipFromReport(newerReport), 'reports-picker-new.zip');
-
       const server = await startServer(createApp());
       try {
         const reportsResponse = await request(server, '/reports?employee=same%20user&reportId=report-reports-picker-old');
         const reportsBody = reportsResponse.body.toString('utf8');
         assert.equal(reportsResponse.statusCode, 200);
-        assert.match(reportsBody, /dashboard-report-row active" href="\/reports\?employee=same%20user&amp;reportId=report-reports-picker-old"/);
+        assert.match(reportsBody, /<select name="employee" data-reports-employee>/);
+        assert.doesNotMatch(reportsBody, /<select name="reportId" data-reports-report/);
+        assert.doesNotMatch(reportsBody, /report-reports-picker-old" selected/);
       } finally {
         server.close();
       }
@@ -985,7 +995,6 @@ async function main() {
       firstReport.cards[0].quantity = 10;
       firstReport.cards[0].currentQuantity = 10;
       firstReport.cards[0].events[0].createdAt = '2026-07-29T10:05:00.000Z';
-
       const secondReport = buildValidReport('report-reports-same-name-b');
       secondReport.createdAt = '2026-07-30T10:00:00.000Z';
       secondReport.user.userId = 'same-user-b';
@@ -995,26 +1004,23 @@ async function main() {
       secondReport.cards[0].quantity = 10;
       secondReport.cards[0].currentQuantity = 7;
       secondReport.cards[0].events[0].createdAt = '2026-07-30T10:05:00.000Z';
-
       await reportStore.processUploadedReport(buildZipFromReport(firstReport), 'reports-same-name-a.zip');
       await reportStore.processUploadedReport(buildZipFromReport(secondReport), 'reports-same-name-b.zip');
-
       const server = await startServer(createApp());
       try {
         const reportsResponse = await request(server, '/reports?reportId=report-reports-same-name-b');
         const reportsBody = reportsResponse.body.toString('utf8');
         assert.equal(reportsResponse.statusCode, 200);
-        assert.match(reportsBody, /href="\/reports\?employee=same-user-a"/);
-        assert.match(reportsBody, /dashboard-report-row active" href="\/reports\?employee=same-user-b&amp;reportId=report-reports-same-name-b"/);
-        assert.match(reportsBody, /\u041e\u0441\u0442\u0430\u0442\u043e\u043a: 7 \u0448\u0442\./);
-        assert.doesNotMatch(reportsBody, /\u041e\u0441\u0442\u0430\u0442\u043e\u043a: 10 \u0448\u0442\./);
+        assert.match(reportsBody, /<option value="same-user-a"\s*>\s*Same User \(same-user-a\)\s*<\/option>/);
+        assert.match(reportsBody, /<option value="same-user-b"\s*selected>\s*Same User \(same-user-b\)\s*<\/option>/);
+        assert.match(reportsBody, /dashboard-stat-label">\u0420\u0430\u0441\u0442\u0435\u043d\u0438\u044f<\/span>\s*<strong>7<\/strong>/);
       } finally {
         server.close();
       }
     });
   });
 
-  await run('opens the exact report on reports page by reportId even without employee query', async () => {
+  await run('uses reportId only to restore the correct employee and still shows latest report', async () => {
     await withTempDir(async (dataDir) => {
       const { reportStore, createApp } = loadModules(dataDir);
       const olderReport = buildValidReport('report-reports-direct-old');
@@ -1025,7 +1031,6 @@ async function main() {
       olderReport.cards[0].quantity = 10;
       olderReport.cards[0].currentQuantity = 10;
       olderReport.cards[0].events[0].createdAt = '2026-07-29T10:05:00.000Z';
-
       const newerReport = buildValidReport('report-reports-direct-new');
       newerReport.createdAt = '2026-07-30T10:00:00.000Z';
       newerReport.user.displayName = 'Same User';
@@ -1034,19 +1039,16 @@ async function main() {
       newerReport.cards[0].quantity = 10;
       newerReport.cards[0].currentQuantity = 7;
       newerReport.cards[0].events[0].createdAt = '2026-07-30T10:05:00.000Z';
-
       await reportStore.processUploadedReport(buildZipFromReport(olderReport), 'reports-direct-old.zip');
       await reportStore.processUploadedReport(buildZipFromReport(newerReport), 'reports-direct-new.zip');
-
       const server = await startServer(createApp());
       try {
         const reportsResponse = await request(server, '/reports?reportId=report-reports-direct-old');
         const reportsBody = reportsResponse.body.toString('utf8');
         assert.equal(reportsResponse.statusCode, 200);
-        assert.match(reportsBody, /29 июля 2026/);
-        assert.doesNotMatch(reportsBody, /30 июля 2026/);
-        assert.match(reportsBody, /10 шт\./);
-        assert.doesNotMatch(reportsBody, /7 из 10 шт\./);
+        assert.match(reportsBody, /<option value="same user" selected>\s*Same User\s*<\/option>/);
+        assert.doesNotMatch(reportsBody, /<select name="reportId" data-reports-report/);
+        assert.match(reportsBody, /dashboard-stat-label">\u0420\u0430\u0441\u0442\u0435\u043d\u0438\u044f<\/span>\s*<strong>7<\/strong>/);
       } finally {
         server.close();
       }
@@ -1063,7 +1065,6 @@ async function main() {
       olderReport.cards[0].createdAt = '2026-07-29T10:00:00.000Z';
       olderReport.cards[0].updatedAt = '2026-07-29T10:00:00.000Z';
       olderReport.cards[0].currentQuantity = 10;
-
       const newerReport = buildValidReport('report-reports-missing-new');
       newerReport.createdAt = '2026-07-30T10:00:00.000Z';
       newerReport.user.displayName = 'Newer User';
@@ -1071,18 +1072,15 @@ async function main() {
       newerReport.cards[0].createdAt = '2026-07-30T10:00:00.000Z';
       newerReport.cards[0].updatedAt = '2026-07-30T10:00:00.000Z';
       newerReport.cards[0].currentQuantity = 7;
-
       await reportStore.processUploadedReport(buildZipFromReport(olderReport), 'older-reports-missing.zip');
       await reportStore.processUploadedReport(buildZipFromReport(newerReport), 'newer-reports-missing.zip');
-
       const server = await startServer(createApp());
       try {
         const response = await request(server, '/reports?reportId=missing-report-id');
         const body = response.body.toString('utf8');
         assert.equal(response.statusCode, 200);
-        assert.match(body, /dashboard-report-row active" href="\/reports\?employee=[^"]*reportId=report-reports-missing-new"/);
-        assert.match(body, /<strong>Newer User<\/strong><span>\u041f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0439 \u0438\u043c\u043f\u043e\u0440\u0442:/);
-        assert.match(body, /\u041e\u0441\u0442\u0430\u0442\u043e\u043a: 7[^<]*\u0421\u043e\u0431\u044b\u0442\u0438\u0439: 1/);
+        assert.match(body, /<option value="newer user" selected>\s*Newer User\s*<\/option>/);
+        assert.doesNotMatch(body, /<select name="reportId" data-reports-report/);
         assert.match(body, /href="\/journal\?reportId=report-reports-missing-new"/);
         assert.doesNotMatch(body, /reports-selection-empty/);
         assert.doesNotMatch(body, /reportId=missing-report-id/);
@@ -1102,7 +1100,6 @@ async function main() {
       olderReport.cards[0].createdAt = '2026-07-29T10:00:00.000Z';
       olderReport.cards[0].updatedAt = '2026-07-29T10:00:00.000Z';
       olderReport.cards[0].currentQuantity = 10;
-
       const newerReport = buildValidReport('report-reports-invalid-employee-new');
       newerReport.createdAt = '2026-07-30T10:00:00.000Z';
       newerReport.user.displayName = 'Newer User';
@@ -1110,17 +1107,15 @@ async function main() {
       newerReport.cards[0].createdAt = '2026-07-30T10:00:00.000Z';
       newerReport.cards[0].updatedAt = '2026-07-30T10:00:00.000Z';
       newerReport.cards[0].currentQuantity = 7;
-
       await reportStore.processUploadedReport(buildZipFromReport(olderReport), 'older-reports-invalid-employee.zip');
       await reportStore.processUploadedReport(buildZipFromReport(newerReport), 'newer-reports-invalid-employee.zip');
-
       const server = await startServer(createApp());
       try {
         const response = await request(server, '/reports?employee=missing-employee');
         const body = response.body.toString('utf8');
         assert.equal(response.statusCode, 200);
-        assert.match(body, /dashboard-report-row active" href="\/reports\?employee=newer%20user&amp;reportId=report-reports-invalid-employee-new"/);
-        assert.match(body, /<strong>Newer User<\/strong><span>[^<]*13:00/);
+        assert.match(body, /<option value="newer user" selected>\s*Newer User\s*<\/option>/);
+        assert.doesNotMatch(body, /<select name="reportId" data-reports-report/);
         assert.match(body, /href="\/journal\?reportId=report-reports-invalid-employee-new"/);
         assert.doesNotMatch(body, /reports-selection-empty/);
         assert.doesNotMatch(body, /employee=missing-employee/);
@@ -1140,7 +1135,6 @@ async function main() {
       olderReport.cards[0].createdAt = '2026-07-29T10:00:00.000Z';
       olderReport.cards[0].updatedAt = '2026-07-29T10:00:00.000Z';
       olderReport.cards[0].currentQuantity = 10;
-
       const newerReport = buildValidReport('report-reports-corrupted-new');
       newerReport.createdAt = '2026-07-30T10:00:00.000Z';
       newerReport.user.displayName = 'Same User';
@@ -1148,19 +1142,18 @@ async function main() {
       newerReport.cards[0].createdAt = '2026-07-30T10:00:00.000Z';
       newerReport.cards[0].updatedAt = '2026-07-30T10:00:00.000Z';
       newerReport.cards[0].currentQuantity = 7;
-
       await reportStore.processUploadedReport(buildZipFromReport(olderReport), 'older-reports-corrupted.zip');
       const newerReportId = await reportStore.processUploadedReport(buildZipFromReport(newerReport), 'newer-reports-corrupted.zip');
       await fs.writeFile(path.join(dataDir, 'reports', newerReportId, 'report.json'), '{"reportId":', 'utf8');
-
       const server = await startServer(createApp());
       try {
         const response = await request(server, '/reports?employee=same%20user&reportId=report-reports-corrupted-new');
         const body = response.body.toString('utf8');
         assert.equal(response.statusCode, 200);
-        assert.match(body, /dashboard-report-row active" href="\/reports\?employee=same%20user&amp;reportId=report-reports-corrupted-old"/);
+        assert.match(body, /<option value="same user" selected>\s*Same User\s*<\/option>/);
+        assert.doesNotMatch(body, /<select name="reportId" data-reports-report/);
         assert.match(body, /href="\/journal\?reportId=report-reports-corrupted-old"/);
-        assert.match(body, /href="\/stages\?reportId=report-reports-corrupted-old"/);
+        assert.match(body, /href="\/stages\?[^"]*reportId=report-reports-corrupted-old/);
         assert.doesNotMatch(body, /reportId=report-reports-corrupted-new/);
         assert.doesNotMatch(body, /reports-selection-empty/);
       } finally {
@@ -1179,7 +1172,6 @@ async function main() {
       corruptedReport.cards[0].createdAt = '2026-07-30T10:00:00.000Z';
       corruptedReport.cards[0].updatedAt = '2026-07-30T10:00:00.000Z';
       corruptedReport.cards[0].currentQuantity = 7;
-
       const readableReport = buildValidReport('report-reports-readable-fallback');
       readableReport.createdAt = '2026-07-29T10:00:00.000Z';
       readableReport.user.displayName = 'Readable User';
@@ -1187,17 +1179,16 @@ async function main() {
       readableReport.cards[0].createdAt = '2026-07-29T10:00:00.000Z';
       readableReport.cards[0].updatedAt = '2026-07-29T10:00:00.000Z';
       readableReport.cards[0].currentQuantity = 10;
-
       const corruptedReportId = await reportStore.processUploadedReport(buildZipFromReport(corruptedReport), 'broken-user-report.zip');
       await reportStore.processUploadedReport(buildZipFromReport(readableReport), 'readable-user-report.zip');
       await fs.writeFile(path.join(dataDir, 'reports', corruptedReportId, 'report.json'), '{"reportId":', 'utf8');
-
       const server = await startServer(createApp());
       try {
         const response = await request(server, '/reports?employee=broken%20user');
         const body = response.body.toString('utf8');
         assert.equal(response.statusCode, 200);
-        assert.match(body, /dashboard-report-row active" href="\/reports\?employee=readable%20user&amp;reportId=report-reports-readable-fallback"/);
+        assert.match(body, /<option value="readable user" selected>\s*Readable User\s*<\/option>/);
+        assert.doesNotMatch(body, /<select name="reportId" data-reports-report/);
         assert.match(body, /href="\/journal\?reportId=report-reports-readable-fallback"/);
         assert.doesNotMatch(body, /reports-selection-empty/);
         assert.doesNotMatch(body, /employee=broken%20user&amp;reportId=report-reports-corrupted-employee-only/);
@@ -1469,10 +1460,10 @@ async function main() {
       report.cards = [
         { ...report.cards[0], cardId: 'card-1', code: 'CARD-1', stage: '\u0412\u044b\u0441\u0430\u0434\u043a\u0430' },
         { ...report.cards[0], cardId: 'card-2', code: 'CARD-2', stage: '\u0422\u0435\u043f\u043b\u0438\u0446\u0430' },
-        { ...report.cards[0], cardId: 'card-3', code: 'CARD-3', stage: 'Клонирование' },
-        { ...report.cards[0], cardId: 'card-4', code: 'CARD-4', stage: 'Адаптация' },
+        { ...report.cards[0], cardId: 'card-3', code: 'CARD-3', stage: '\u041a\u043b\u043e\u043d\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u0435' },
+        { ...report.cards[0], cardId: 'card-4', code: 'CARD-4', stage: '\u0410\u0434\u0430\u043f\u0442\u0430\u0446\u0438\u044f' },
         { ...report.cards[0], cardId: 'card-5', code: 'CARD-5', stage: '\u0412\u0432\u0435\u0434\u0435\u043d\u0438\u0435 \u0432 \u043a\u0443\u043b\u044c\u0442\u0443\u0440\u0443' },
-        { ...report.cards[0], cardId: 'card-6', code: 'CARD-6', stage: 'Закалка' },
+        { ...report.cards[0], cardId: 'card-6', code: 'CARD-6', stage: '\u0417\u0430\u043a\u0430\u043b\u043a\u0430' },
         { ...report.cards[0], cardId: 'card-7', code: 'CARD-7', stage: '\u041d\u0435\u0438\u0437\u0432\u0435\u0441\u0442\u043d\u0430\u044f \u0441\u0442\u0430\u0434\u0438\u044f' }
       ];
 
@@ -1482,10 +1473,10 @@ async function main() {
 
       assert.deepEqual(viewModel.filterOptions.stages, [
         '\u0412\u0432\u0435\u0434\u0435\u043d\u0438\u0435 \u0432 \u043a\u0443\u043b\u044c\u0442\u0443\u0440\u0443',
-        'Клонирование',
-        'Адаптация',
+        '\u041a\u043b\u043e\u043d\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u0435',
+        '\u0410\u0434\u0430\u043f\u0442\u0430\u0446\u0438\u044f',
         '\u0422\u0435\u043f\u043b\u0438\u0446\u0430',
-        'Закалка',
+        '\u0417\u0430\u043a\u0430\u043b\u043a\u0430',
         '\u0412\u044b\u0441\u0430\u0434\u043a\u0430',
         '\u041d\u0435\u0438\u0437\u0432\u0435\u0441\u0442\u043d\u0430\u044f \u0441\u0442\u0430\u0434\u0438\u044f'
       ]);
@@ -1806,7 +1797,7 @@ async function main() {
     await withTempDir(async (dataDir) => {
       const { reportStore } = loadModules(dataDir);
       const report = buildValidReport('report-hidden-plant-name-1');
-      report.cards[0].cultureName = 'Арония';
+      report.cards[0].cultureName = 'РђСЂРѕРЅРёСЏ';
       report.cards[0].speciesName = '\u041c\u0443\u043b\u0430\u0442\u043a\u0430';
       report.cards[0].varietyName = '\u041e\u0442\u0441\u0443\u0442\u0441\u0442\u0432\u0443\u0435\u0442';
 
@@ -1814,10 +1805,10 @@ async function main() {
       const storedReport = await reportStore.getReport(reportId);
       const viewModel = storedReport.buildViewModel();
 
-      assert.equal(storedReport.cards[0].culture, 'Арония');
+      assert.equal(storedReport.cards[0].culture, 'РђСЂРѕРЅРёСЏ');
       assert.equal(storedReport.cards[0].sort, '\u041c\u0443\u043b\u0430\u0442\u043a\u0430');
       assert.equal(storedReport.cards[0].variety, '');
-      assert.deepEqual(viewModel.filterOptions.cultures, ['Арония']);
+      assert.deepEqual(viewModel.filterOptions.cultures, ['РђСЂРѕРЅРёСЏ']);
     });
   });
 
@@ -1865,10 +1856,10 @@ async function main() {
       const secondReport = buildValidReport('report-merged-event-extra-fields-1');
 
       firstReport.cards[0].events[0].extraFields = {
-        stressLevel: 'Низкий'
+        stressLevel: 'РќРёР·РєРёР№'
       };
       secondReport.cards[0].events[0].extraFields = {
-        turgor: 'Нормальный'
+        turgor: 'РќРѕСЂРјР°Р»СЊРЅС‹Р№'
       };
 
       await reportStore.processUploadedReport(buildZipFromReport(firstReport), 'merged-event-extra-fields-a.zip');
@@ -1880,8 +1871,8 @@ async function main() {
       const storedReport = await reportStore.getReport(reports[0].reportId);
       assert.ok(storedReport);
       assert.deepEqual(storedReport.cards[0].events[0].extraFields, {
-        stressLevel: 'Низкий',
-        turgor: 'Нормальный'
+        stressLevel: 'РќРёР·РєРёР№',
+        turgor: 'РќРѕСЂРјР°Р»СЊРЅС‹Р№'
       });
     });
   });
@@ -2613,7 +2604,7 @@ async function main() {
         assert.equal(response.statusCode, 400);
         assert.match(body, /class="alert alert-error upload-error">/);
         assert.match(body, /class="upload-form upload-form-home"/);
-        assert.doesNotMatch(body, /class="sidebar-item active" href="\/">[\s\S]*<span>Главная<\/span>/);
+        assert.doesNotMatch(body, /class="sidebar-item active" href="\/">[\s\S]*<span>Р“Р»Р°РІРЅР°СЏ<\/span>/);
         assert.match(body, /class="button button-secondary upload-back-button">/);
         assertNoCommonMojibake(body);
       } finally {
@@ -2698,7 +2689,7 @@ async function main() {
         assert.match(body, /\u041d\u0430 \u0433\u043b\u0430\u0432\u043d\u0443\u044e/);
         assert.match(body, /<a class="sidebar-item active" href="\/">/);
         assert.doesNotMatch(body, /sidebar-clear-form/);
-        assert.doesNotMatch(body, /На дашборд/);
+        assert.doesNotMatch(body, /РќР° РґР°С€Р±РѕСЂРґ/);
         assertNoCommonMojibake(body);
       } finally {
         server.close();
@@ -2877,7 +2868,7 @@ async function main() {
         assert.equal(response.statusCode, 404);
         assert.match(body, /sidebar-clear-form/);
         assert.match(body, /\u0417\u0430\u043f\u0440\u043e\u0448\u0435\u043d\u043d\u044b\u0439 \u0444\u0430\u0439\u043b \u043e\u0442\u0447\u0435\u0442\u0430 \u043d\u0435 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u0435\u0442\./);
-        assert.match(body, /На дашборд/);
+        assert.match(body, /\u041d\u0430 \u0434\u0430\u0448\u0431\u043e\u0440\u0434/);
         assert.match(body, /<a class="sidebar-item active" href="\/">/);
       } finally {
         server.close();
@@ -3055,7 +3046,7 @@ async function main() {
       delete secondReport.reportId;
       secondReport.createdAt = '2026-07-30T11:00:00.000Z';
       const firstId = await reportStore.processUploadedReport(buildZipFromReport(firstReport), '\u043e\u0442\u0447\u0435\u0442.zip');
-      const secondId = await reportStore.processUploadedReport(buildZipFromReport(secondReport), 'архив.zip');
+      const secondId = await reportStore.processUploadedReport(buildZipFromReport(secondReport), 'Р°СЂС…РёРІ.zip');
 
       assert.notEqual(firstId, secondId);
       assert.match(firstId, /^report-[a-f0-9]{8}$/);
@@ -3304,3 +3295,5 @@ main().catch((error) => {
   console.error(error.stack || error.message || String(error));
   process.exitCode = 1;
 });
+
+

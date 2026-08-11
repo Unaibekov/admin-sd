@@ -302,6 +302,21 @@
     }
   }
 
+  const scrollTopButton = document.querySelector('[data-scroll-top]');
+  if (scrollTopButton) {
+    const toggleScrollTopButton = () => {
+      const shouldShow = window.scrollY > 480;
+      scrollTopButton.hidden = !shouldShow;
+    };
+
+    scrollTopButton.addEventListener('click', () => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+
+    window.addEventListener('scroll', toggleScrollTopButton, { passive: true });
+    toggleScrollTopButton();
+  }
+
   const journalRoot = document.querySelector('[data-journal-page]');
   if (journalRoot) {
     const searchInput = journalRoot.querySelector('[data-journal-search]');

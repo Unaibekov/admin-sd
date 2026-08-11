@@ -35,10 +35,14 @@
       <span class="sidebar-item-icon">📄</span>
       <span>Отчеты</span>
     </a>
-    <span class="sidebar-item">
+    <a class="sidebar-item <%= activePage === 'photos' ? 'active' : '' %>" href="/photos">
+      <span class="sidebar-item-icon">🖼️</span>
+      <span>Фотофиксации</span>
+    </a>
+    <a class="sidebar-item <%= activePage === 'problems' ? 'active' : '' %>" href="/problems">
       <span class="sidebar-item-icon">⚠️</span>
       <span>Проблемы</span>
-    </span>
+    </a>
     <span class="sidebar-item">
       <span class="sidebar-item-icon">👥</span>
       <span>Пользователи</span>

@@ -250,7 +250,7 @@ run('GET /problems renders active and isolated cases without duplicates', async 
       assert.match(response.body, /Проблемы/);
       assert.match(response.body, /ISO-1/);
       assert.match(response.body, /Открыть паспорт/);
-      assert.doesNotMatch(response.body, /PARENT-1[\s\S]*Активна/);
+      assert.doesNotMatch(response.body, /<strong>PARENT-1<\/strong>/);
 
       const isolatedResponse = await request(server, '/problems?status=isolated');
       assert.equal(isolatedResponse.statusCode, 200);

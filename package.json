@@ -2,11 +2,12 @@
   "name": "sadovnik-diary-admin",
   "version": "1.0.0",
   "private": true,
-  "description": "Временная локальная админка для просмотра ZIP-отчетов Sadovnik Diary MVP.",
+  "description": "\u0412\u0440\u0435\u043c\u0435\u043d\u043d\u0430\u044f \u043b\u043e\u043a\u0430\u043b\u044c\u043d\u0430\u044f \u0430\u0434\u043c\u0438\u043d\u043a\u0430 \u0434\u043b\u044f \u043f\u0440\u043e\u0441\u043c\u043e\u0442\u0440\u0430 ZIP-\u043e\u0442\u0447\u0435\u0442\u043e\u0432 Sadovnik Diary MVP.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node tests/journalModel.test.js && node tests/stagesPageModel.test.js && node tests/dashboardModel.test.js && node tests/reportDashboardModel.test.js",
+    "test": "node tests/journalModel.test.js && node tests/stagesPageModel.test.js && node tests/stagesRoute.test.js && node tests/dashboardModel.test.js && node tests/dashboardRoute.test.js && node tests/reportDashboardModel.test.js && node tests/reportsPageModel.test.js && node tests/problemsPageModel.test.js && node tests/problemsRoute.test.js && node tests/securityImport.test.js",
+    "lint": "eslint .",
     "clear:reports": "node scripts/clear-reports.js"
   },
   "dependencies": {
@@ -14,5 +15,8 @@
     "express": "^4.21.2",
     "multer": "^1.4.5-lts.1",
     "unzipper": "^0.11.6"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.1"
   }
 }

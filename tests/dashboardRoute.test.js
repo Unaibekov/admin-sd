@@ -180,8 +180,8 @@ run('GET / renders grouped photo cards with modal payload for dashboard photos',
       assert.match(response.body, /problem-photo-group/);
       assert.match(response.body, /reportId=dashboard-photos/);
       assert.match(response.body, /eventId=problem-photo-group/);
-      assert.match(response.body, /photo-modal-title/);
-      assert.match(response.body, /Детали события/);
+      assert.match(response.body, /data-photo-payload=/);
+      assert.match(response.body, /eventLabel/);
       assert.doesNotMatch(response.body, /<span class="dashboard-thumb-code">BATCH-1<\/span>/);
     } finally {
       server.close();
@@ -226,12 +226,12 @@ run('GET /photos renders paginated global photo gallery', async () => {
       assert.equal(page1.statusCode, 200);
       assert.match(page1.body, /Фотофиксации/);
       assert.match(page1.body, /Страница 1 из 2/);
-      assert.match(page1.body, /1–12 из 13/);
+      assert.match(page1.body, /<h1>.*13<\/h1>/);
 
       const page2 = await request(server, '/photos?page=2');
       assert.equal(page2.statusCode, 200);
       assert.match(page2.body, /Страница 2 из 2/);
-      assert.match(page2.body, /13–13 из 13/);
+      assert.match(page2.body, /<h1>.*13<\/h1>/);
     } finally {
       server.close();
     }

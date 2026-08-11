@@ -684,6 +684,20 @@ run('matches journal period filters case-insensitively and ignores extra spaces'
   assert.deepEqual(journal.events.map((event) => event.id), ['period-today']);
 });
 
+run('uses all time as the default journal period when query period is missing', () => {
+  const journal = buildJournalPageModel([{
+    reportId: 'journal-default-period',
+    createdAt: '2026-07-15T09:00:00.000Z',
+    user: { userId: 'period-user', displayName: 'Иван Петров' },
+    cards: [{ ...card, events: [{ eventId: 'default-period-event', type: 'movement', date: '2026-07-15T08:00:00.000Z', createdBy: 'period-user' }] }],
+    raw: { cards: [{ events: [{ eventId: 'default-period-event' }] }] }
+  }], {});
+
+  assert.equal(journal.filters.period, 'all');
+  assert.equal(journal.events.length, 1);
+  assert.equal(journal.events[0].id, 'default-period-event');
+});
+
 run('matches journal employee filters case-insensitively and ignores extra spaces', () => {
   const journal = buildJournalPageModel([{
     reportId: 'employee-filter-report',

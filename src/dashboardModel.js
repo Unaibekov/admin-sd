@@ -79,7 +79,7 @@ function buildDashboard(reports = [], selectedReport = null, reportModels = [], 
     attentionEvents: buildAttentionEvents(visibleAttentionBatches),
     employeeActivity: employeeActivity.slice(0, 5),
     recentReports,
-    recentPhotos: takeEvenRecentPhotos(recentPhotos, 8),
+    recentPhotos: takeRecentPhotos(recentPhotos, 9),
     productionMetrics,
     current
   };
@@ -761,12 +761,8 @@ function sortRecentPhotoCards(left, right) {
   return left.priority - right.priority || byNewest(left, right);
 }
 
-function takeEvenRecentPhotos(photos = [], maxCount = 8) {
-  const limited = Array.isArray(photos) ? photos.slice(0, maxCount) : [];
-  if (limited.length > 1 && limited.length % 2 !== 0) {
-    limited.pop();
-  }
-  return limited;
+function takeRecentPhotos(photos = [], maxCount = 9) {
+  return Array.isArray(photos) ? photos.slice(0, maxCount) : [];
 }
 
 function getProductionMetrics(events = []) {

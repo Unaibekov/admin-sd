@@ -23,6 +23,7 @@ function buildProblemsPageModel(reports = [], query = {}) {
   const visibleCases = filteredCases
     .filter((problemCase) => matchesStatus(problemCase, filters.status))
     .sort(compareProblemCases);
+  const groupedCases = buildProblemCaseGroups(filteredCases, filters.status);
 
   return {
     filters: {
@@ -40,6 +41,7 @@ function buildProblemsPageModel(reports = [], query = {}) {
       { key: 'highRisk', label: 'Высокий / критический риск', value: counts.highRisk },
       { key: 'resolved', label: 'Решенные проблемы', value: counts.resolved }
     ],
+    groupedCases,
     problemCases: visibleCases,
     problemTypeSummary: buildProblemTypeSummary(filteredCases),
     riskSummary: buildRiskSummary(filteredCases),
@@ -83,11 +85,13 @@ function buildProblemCase(batch = {}) {
     return null;
   }
 
-  const isActive = resolveActiveState(batch, activeProblemQuantity);
-  const isIsolated = originType === 'problemisolation' && isolationStatus === 'isolated';
-  const isResolved = hasHistory && !isActive && !isIsolated;
   const firstProblemEvent = problemTimeline[problemTimeline.length - 1] || null;
   const latestProblemEvent = problemTimeline[0] || null;
+  const latestProblemType = normalizeText(latestProblemEvent && latestProblemEvent.type).replace(/[^a-zа-яё]/g, '');
+  const hasLatestRecovery = latestProblemType === 'problemrecovery';
+  const isActive = hasLatestRecovery ? false : resolveActiveState(batch, activeProblemQuantity);
+  const isIsolated = !hasLatestRecovery && originType === 'problemisolation' && isolationStatus === 'isolated';
+  const isResolved = hasHistory && (hasLatestRecovery || (!isActive && !isIsolated));
   const riskKey = normalizeRisk(batch.riskLevel || latestProblemEvent && latestProblemEvent.risk || '');
   const typeLabel = firstNonEmpty(
     batch.problemType,
@@ -103,6 +107,25 @@ function buildProblemCase(batch = {}) {
     'journal',
     latestProblemEvent && latestProblemEvent.eventId ? latestProblemEvent.eventId : ''
   );
+  const presentation = buildProblemPresentation({
+    batch,
+    firstProblemEvent,
+    latestProblemEvent,
+    typeLabel,
+    riskKey,
+    riskLabel: formatRiskLabel(riskKey),
+    activeProblemQuantity,
+    statusKey,
+    code: firstNonEmpty(batch.code, 'Без кода'),
+    currentQuantity: toPositiveNumber(batch.currentQuantity),
+    unisolatedProblemQuantity: toPositiveNumber(batch.unisolatedProblemQuantity),
+    reportedAtLabel: formatDateTime(firstProblemEvent ? firstProblemEvent.createdAt : firstNonEmpty(batch.updatedAt, batch.createdAt)),
+    employeeName: firstNonEmpty(batch.employeeName, 'Неизвестно'),
+    latestActionAtLabel: latestProblemEvent ? formatDateTime(latestProblemEvent.createdAt) : '',
+    parentBatch: batch.parentBatch || null,
+    isolationStatusLabel: firstNonEmpty(batch.isolationStatusLabel, formatIsolationStatus(batch.isolationStatus), 'Без изоляции'),
+    healthStatusLabel: firstNonEmpty(batch.healthStatusLabel, formatHealthStatus(batch.healthStatus), 'Не указан')
+  });
 
   return {
     id: String(batch.batchKey || '').trim(),
@@ -137,6 +160,11 @@ function buildProblemCase(batch = {}) {
     latestActionAtLabel: latestProblemEvent ? formatDateTime(latestProblemEvent.createdAt) : '',
     statusKey,
     statusLabel: formatStatusLabel(statusKey),
+    headerStatus: presentation.headerStatus,
+    metaLine: presentation.metaLine,
+    agronomyFields: presentation.agronomyFields,
+    lastAction: presentation.lastAction,
+    variantKey: presentation.variantKey,
     isActive,
     isIsolated,
     isResolved,
@@ -243,7 +271,7 @@ function resolveFilters(query = {}, problemCases = []) {
   const selectedRisk = riskOptions.some((option) => option.value === requestedRisk)
     ? requestedRisk
     : 'all';
-  const selectedStatus = STATUS_KEYS.get(normalizeText(query.status)) || 'active';
+  const selectedStatus = STATUS_KEYS.get(normalizeText(query.status)) || 'all';
 
   return {
     employee: selectedEmployee,
@@ -325,6 +353,58 @@ function countProblemCases(problemCases = []) {
   };
 }
 
+function buildProblemCaseGroups(problemCases = [], status = 'all') {
+  const sortedCases = [...problemCases].sort(compareProblemCases);
+  const active = sortedCases.filter((problemCase) => problemCase.isActive);
+  const isolated = sortedCases.filter((problemCase) => problemCase.isIsolated);
+  const resolved = sortedCases.filter((problemCase) => problemCase.isResolved);
+
+  if (status === 'active') {
+    return {
+      leftTitle: 'Активные',
+      leftDescription: 'Текущие проблемные партии без дублей по snapshot.',
+      leftSections: [{ key: 'active', title: 'Активные проблемы', cases: active }],
+      rightTitle: '',
+      rightDescription: '',
+      rightSections: []
+    };
+  }
+
+  if (status === 'isolated') {
+    return {
+      leftTitle: 'В изоляции',
+      leftDescription: 'Текущие изолированные партии без дублей по snapshot.',
+      leftSections: [{ key: 'isolated', title: 'Изолированные партии', cases: isolated }],
+      rightTitle: '',
+      rightDescription: '',
+      rightSections: []
+    };
+  }
+
+  if (status === 'resolved') {
+    return {
+      leftTitle: 'Решенные',
+      leftDescription: 'История закрытых проблемных кейсов.',
+      leftSections: [{ key: 'resolved', title: 'Решенные проблемы', cases: resolved }],
+      rightTitle: '',
+      rightDescription: '',
+      rightSections: []
+    };
+  }
+
+  return {
+    leftTitle: 'Текущие',
+    leftDescription: 'Активные и изолированные проблемные партии.',
+    leftSections: [
+      { key: 'active', title: 'Активные проблемы', cases: active },
+      { key: 'isolated', title: 'В изоляции', cases: isolated }
+    ],
+    rightTitle: 'Решенные',
+    rightDescription: 'Закрытые проблемные кейсы по текущему набору.',
+    rightSections: [{ key: 'resolved', title: 'Решенные проблемы', cases: resolved }]
+  };
+}
+
 function buildProblemTypeSummary(problemCases = []) {
   const counts = new Map();
   for (const problemCase of problemCases) {
@@ -364,6 +444,169 @@ function buildStagesUrl(batchKey, reportId, tab, eventId = '') {
   if (eventId) params.set('eventId', eventId);
   const query = params.toString();
   return query ? `/stages?${query}` : '/stages';
+}
+
+function buildProblemPresentation({
+  batch = {},
+  firstProblemEvent = null,
+  latestProblemEvent = null,
+  typeLabel = '',
+  riskKey = 'none',
+  riskLabel = 'Не указан',
+  activeProblemQuantity = 0,
+  statusKey = 'active',
+  code = '',
+  currentQuantity = 0,
+  unisolatedProblemQuantity = 0,
+  reportedAtLabel = '',
+  employeeName = '',
+  latestActionAtLabel = '',
+  parentBatch = null,
+  isolationStatusLabel = '',
+  healthStatusLabel = ''
+} = {}) {
+  const variantKey = resolveProblemVariant(batch, latestProblemEvent, statusKey);
+  const headerStatus = formatProblemHeaderStatus(statusKey);
+  const eventProblemType = firstNonEmpty(
+    latestProblemEvent && latestProblemEvent.problemType,
+    latestProblemEvent && latestProblemEvent.problem,
+    firstProblemEvent && firstProblemEvent.problemType,
+    firstProblemEvent && firstProblemEvent.problem,
+    typeLabel
+  );
+  const eventDescription = firstNonEmpty(
+    latestProblemEvent && latestProblemEvent.problemDescription,
+    latestProblemEvent && latestProblemEvent.diseaseName,
+    latestProblemEvent && latestProblemEvent.pestName,
+    firstProblemEvent && firstProblemEvent.problemDescription,
+    firstProblemEvent && firstProblemEvent.diseaseName,
+    firstProblemEvent && firstProblemEvent.pestName,
+    batch.problemDescription
+  );
+  const affectedQuantity = firstPositiveNumber(
+    latestProblemEvent && latestProblemEvent.affectedQuantity,
+    firstProblemEvent && firstProblemEvent.affectedQuantity,
+    latestProblemEvent && latestProblemEvent.count,
+    latestProblemEvent && latestProblemEvent.quantity,
+    latestProblemEvent && latestProblemEvent.activeProblemQuantity,
+    firstProblemEvent && firstProblemEvent.count,
+    firstProblemEvent && firstProblemEvent.quantity,
+    firstProblemEvent && firstProblemEvent.activeProblemQuantity,
+    activeProblemQuantity
+  );
+  const isolatedQuantity = firstPositiveNumber(
+    latestProblemEvent && latestProblemEvent.count,
+    latestProblemEvent && latestProblemEvent.quantity,
+    latestProblemEvent && latestProblemEvent.activeProblemQuantity,
+    firstProblemEvent && firstProblemEvent.count,
+    firstProblemEvent && firstProblemEvent.quantity,
+    firstProblemEvent && firstProblemEvent.activeProblemQuantity,
+    activeProblemQuantity
+  );
+  const recoveredQuantity = firstPositiveNumber(
+    latestProblemEvent && latestProblemEvent.recoveredQuantity,
+    latestProblemEvent && latestProblemEvent.quantity,
+    latestProblemEvent && latestProblemEvent.count,
+    currentQuantity
+  );
+  const metaLine = [code, reportedAtLabel, employeeName].filter(Boolean);
+  const agronomyFields = [];
+  const pushField = (label, value) => {
+    const text = String(value || '').trim();
+    if (!text) return;
+    agronomyFields.push({ label, value: text });
+  };
+
+  pushField('Количество', formatQuantity(currentQuantity));
+
+  if (variantKey === 'isolation') {
+    pushField('Проблема', 'Изоляция проблемных растений');
+    if (parentBatch) {
+      pushField('Источник', [parentBatch.title, parentBatch.code].filter(Boolean).join(' · '));
+    }
+    pushField('Изолировано', formatQuantity(isolatedQuantity));
+    pushField('Новая партия', code);
+    pushField('Статус', 'В изоляции');
+    if (unisolatedProblemQuantity > 0) {
+      pushField('Без изоляции', formatQuantity(unisolatedProblemQuantity));
+    }
+  } else if (variantKey === 'recovery') {
+    pushField('Проблема', 'Решена');
+    pushField('Восстановлено', formatQuantity(recoveredQuantity));
+    pushField('Состояние', 'Здоровое состояние');
+    pushField('Дата решения', latestActionAtLabel || reportedAtLabel);
+    if (normalizeText(batch.originType) === 'problemisolation' && parentBatch) {
+      pushField('Источник', [parentBatch.title, parentBatch.code].filter(Boolean).join(' · '));
+    }
+  } else {
+    pushField('Проблема', eventProblemType || 'Не указана');
+    if (riskKey !== 'none') {
+      pushField('Риск', riskLabel);
+    }
+    pushField('Затронуто', formatQuantity(affectedQuantity));
+    pushField('Изоляция', normalizeText(batch.isolationStatus) === 'isolated' ? 'Требуется' : 'Не требуется');
+    pushField('Состояние', resolveActiveConditionLabel(batch, isolationStatusLabel, healthStatusLabel));
+    if (eventDescription) {
+      pushField('Описание', eventDescription);
+    }
+  }
+
+  return {
+    variantKey,
+    headerStatus,
+    metaLine,
+    agronomyFields,
+    lastAction: {
+      title: firstNonEmpty(
+        latestProblemEvent && latestProblemEvent.typeLabel,
+        formatProblemLastAction(variantKey, statusKey)
+      ),
+      atLabel: latestActionAtLabel
+    }
+  };
+}
+
+function resolveProblemVariant(batch = {}, latestProblemEvent = null, statusKey = 'active') {
+  const latestType = normalizeText(latestProblemEvent && latestProblemEvent.type).replace(/[^a-zа-яё]/g, '');
+  const originType = normalizeText(batch.originType);
+
+  if (latestType === 'problemrecovery' || statusKey === 'resolved') return 'recovery';
+  if (originType === 'problemisolation' || latestType === 'problemisolation' || latestType === 'isolatedfromparent') return 'isolation';
+  return 'active';
+}
+
+function formatProblemHeaderStatus(statusKey) {
+  return ({
+    active: 'Активная проблема',
+    isolated: 'В изоляции',
+    resolved: 'Проблема решена'
+  })[normalizeText(statusKey)] || 'Проблема';
+}
+
+function formatProblemLastAction(variantKey, statusKey) {
+  if (variantKey === 'isolation') return 'Партия изолирована';
+  if (variantKey === 'recovery' || normalizeText(statusKey) === 'resolved') return 'Проблема решена';
+  return 'Проблема зафиксирована';
+}
+
+function resolveActiveConditionLabel(batch = {}, isolationStatusLabel = '', healthStatusLabel = '') {
+  if (normalizeText(batch.isolationStatus) === 'isolated') return 'В изоляции';
+  if (normalizeText(batch.healthStatus) === 'healthy') return 'Под наблюдением';
+  if (normalizeText(batch.healthStatus) === 'resolved' || normalizeText(batch.healthStatus) === 'recovered') return 'Здоровое состояние';
+  return firstNonEmpty(isolationStatusLabel, healthStatusLabel, 'Требует внимания');
+}
+
+function formatQuantity(value) {
+  const quantity = toPositiveNumber(value);
+  return quantity > 0 ? `${quantity} шт.` : 'Не указано';
+}
+
+function firstPositiveNumber(...values) {
+  for (const value of values) {
+    const quantity = toPositiveNumber(value);
+    if (quantity > 0) return quantity;
+  }
+  return 0;
 }
 
 function formatStatusLabel(value) {
@@ -459,3 +702,4 @@ module.exports = {
   buildProblemsPageModel,
   buildProblemCase
 };
+

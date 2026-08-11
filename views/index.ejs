@@ -62,7 +62,7 @@
                 <a class="dashboard-card-link" href="<%= dashboardJournalUrl() %>">Показать все</a>
               </div>
               <%- include('partials/dashboard-event-feed', {
-                events: dashboard.recentEvents,
+                events: dashboard.recentEvents.slice(0, 5),
                 emptyText: 'За выбранный период событий нет.',
                 eventHref: (event) => event.batchKey ? `/stages?batchId=${encodeURIComponent(event.batchKey)}${dashboard.selectedReportId ? `&reportId=${encodeURIComponent(dashboard.selectedReportId)}` : ''}&tab=journal${event.eventId ? `&eventId=${encodeURIComponent(event.eventId)}` : ''}#journal` : ''
               }) %>
@@ -71,7 +71,7 @@
             <article class="dashboard-card">
               <div class="dashboard-card-head"><div><h2>Проблемные партии</h2><p>Требуют внимания сейчас</p></div><a class="dashboard-card-link" href="<%= dashboardJournalUrl({ category: 'problems' }) %>">Все проблемы</a></div>
               <%- include('partials/dashboard-event-feed', {
-                events: dashboard.attentionEvents,
+                events: dashboard.attentionEvents.slice(0, 5),
                 feedClass: 'dashboard-attention-list',
                 forceAttention: true,
                 emptyText: 'Нет партий, требующих внимания.',
@@ -85,7 +85,7 @@
               <div class="dashboard-card-head"><div><h2>Последние отчеты</h2><p>Последний импорт каждого сотрудника</p></div><a href="<%= dashboardReportsUrl() %>" class="dashboard-card-link">Все отчеты</a></div>
               <% if (dashboard.recentReports.length) { %>
                 <div class="dashboard-reports">
-                  <% dashboard.recentReports.forEach((report) => { const reportHref = `/reports?employee=${encodeURIComponent(report.employeeKey)}&reportId=${encodeURIComponent(report.reportId)}`; %><a class="dashboard-report-row" href="<%= reportHref %>"><div class="dashboard-report-main"><strong><%= report.author %></strong><span><%= report.role %> &middot; <%= report.displayCreatedAt %></span></div><div class="dashboard-report-pills"><span><%= report.summary.cardsCountLabel %></span><span><%= report.summary.eventsCountLabel %></span><span><%= report.summary.photosCountLabel %></span><span><%= report.summary.problemsCountLabel %></span></div></a><% }) %>
+                  <% dashboard.recentReports.forEach((report) => { const reportHref = `/reports?employee=${encodeURIComponent(report.employeeKey)}&reportId=${encodeURIComponent(report.reportId)}`; %><a class="dashboard-report-row" href="<%= reportHref %>"><div class="dashboard-report-main"><div class="dashboard-report-headline"><strong><%= report.author %></strong><div class="dashboard-report-meta"><span><%= report.role %> &middot; <%= report.displayCreatedAt %></span></div></div><div class="dashboard-report-pills"><span><%= report.summary.cardsCountLabel %></span><span><%= report.summary.eventsCountLabel %></span><span><%= report.summary.photosCountLabel %></span><span><%= report.summary.problemsCountLabel %></span></div></div></a><% }) %>
                 </div>
               <% } else { %><div class="dashboard-inline-empty">За выбранный период отчетов нет.</div><% } %>
             </article>

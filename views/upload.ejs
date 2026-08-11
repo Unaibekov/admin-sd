@@ -1,6 +1,6 @@
 <%- include('partials/head', { pageTitle }) %>
 <div class="app-shell">
-  <%- include('partials/sidebar', { activePage: 'upload', showDashboardLink: true }) %>
+  <%- include('partials/sidebar', { activePage: 'upload', showDashboardLink }) %>
 
   <main class="app-main app-main-upload">
     <section class="upload-page">
@@ -10,7 +10,7 @@
           <h1>Загрузить отчет</h1>
         </div>
 
-        <a href="/" class="button button-secondary upload-back-button">Вернуться на дашборд</a>
+        <a href="/" class="button button-secondary upload-back-button"><%= showDashboardLink ? 'Вернуться на дашборд' : 'Вернуться на главную' %></a>
       </div>
 
       <% if (error) { %>
@@ -25,7 +25,7 @@
 
         <div class="upload-form-footer">
           <button type="button" class="button upload-submit" data-upload-trigger>Выбрать отчеты</button>
-          <span class="upload-limit">Максимальный размер: 200 МБ</span>
+          <span class="upload-limit"><%= uploadLimitText %></span>
         </div>
       </form>
 

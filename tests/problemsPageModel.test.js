@@ -102,6 +102,39 @@ run('treats recovered history as resolved and not active', () => {
   assert.equal(page.problemCases[0].statusKey, 'resolved');
 });
 
+run('treats latest recovery as resolved even when batch active quantity is stale', () => {
+  const report = buildReport({
+    reportId: 'recovered-stale-batch',
+    cards: [buildCard({
+      activeProblemQuantity: 5,
+      healthStatus: 'infected',
+      batchStatus: 'problem',
+      events: [
+        buildProblemEvent({
+          eventId: 'problem-1',
+          createdAt: '2026-08-05T09:00:00.000Z',
+          riskLevel: 'High'
+        }),
+        {
+          eventId: 'recovery-2',
+          type: 'problemRecovery',
+          createdAt: '2026-08-06T10:00:00.000Z',
+          healthStatus: 'healthy',
+          isolationStatus: 'released',
+          activeProblemQuantity: 0,
+          recoveredQuantity: 2
+        }
+      ]
+    })]
+  });
+
+  const page = buildProblemsPageModel([report], { status: 'resolved' });
+
+  assert.equal(page.counts.active, 0);
+  assert.equal(page.counts.resolved, 1);
+  assert.equal(page.problemCases[0].statusKey, 'resolved');
+});
+
 run('does not keep healthy parent in active after full isolation', () => {
   const report = buildReport({
     reportId: 'full-isolation-report',

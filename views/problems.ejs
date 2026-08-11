@@ -68,68 +68,70 @@
             <% }) %>
           </section>
 
-          <section class="report-sections-grid problems-sections-grid">
+          <section class="problems-content <%= problems.groupedCases.rightSections.length ? 'problems-content-split' : '' %>">
             <article class="dashboard-card report-section-card">
               <div class="dashboard-card-head">
                 <div>
-                  <h2><%= problems.selectedStatusLabel %></h2>
-                  <p>Текущие problem cases без дублей по snapshot.</p>
+                  <h2><%= problems.groupedCases.leftTitle %></h2>
+                  <p><%= problems.groupedCases.leftDescription %></p>
                 </div>
               </div>
 
-              <% if (problems.hasResults) { %>
-                <div class="problems-case-list">
-                  <% problems.problemCases.forEach((problemCase) => { %>
-                    <article class="problems-case-card problems-case-card-<%= problemCase.statusKey %>">
-                      <div class="problems-case-head">
-                        <div class="problems-case-title">
-                          <strong><%= problemCase.title %></strong>
-                          <span><%= problemCase.code %> · <%= problemCase.stage %></span>
+              <% if (problems.groupedCases.leftSections.some((section) => section.cases.length)) { %>
+                <div class="problems-column-sections">
+                  <% problems.groupedCases.leftSections.forEach((section) => { %>
+                    <% if (section.cases.length) { %>
+                      <section class="problems-column-section">
+                        <div class="problems-column-section-head">
+                          <h3><%= section.title %></h3>
+                          <span><%= section.cases.length %></span>
                         </div>
-                        <span class="batch-list-status <%= problemCase.statusKey === 'resolved' ? 'batch-list-status-ok' : 'batch-list-status-alert' %>"><%= problemCase.statusLabel %></span>
-                      </div>
+                        <div class="problems-case-list">
+                          <% section.cases.forEach((problemCase) => { %>
+                            <article class="problems-case-card problems-case-card-<%= problemCase.statusKey %>">
+                              <div class="problems-case-head">
+                                <div class="problems-case-title">
+                                  <strong><%= problemCase.title %></strong>
+                                  <span class="problems-case-status-text"><%= problemCase.headerStatus %></span>
+                                </div>
+                              </div>
 
-                      <div class="batch-list-meta problems-case-meta">
-                        <span>Проблема: <strong><%= problemCase.problemType %></strong></span>
-                        <span>Риск: <strong><%= problemCase.riskLabel %></strong></span>
-                        <span>Сотрудник: <strong><%= problemCase.employeeName %></strong></span>
-                        <span>Дата: <strong><%= problemCase.reportedAtLabel %></strong></span>
-                      </div>
+                              <div class="problems-case-meta-line" aria-label="Сводка по партии">
+                                <% problemCase.metaLine.forEach((item, index) => { %>
+                                  <span>
+                                    <%= item %><%= index < problemCase.metaLine.length - 1 ? ' ·' : '' %>
+                                  </span>
+                                <% }) %>
+                              </div>
 
-                      <dl class="problems-case-grid">
-                        <div><dt>Количество в партии</dt><dd><%= problemCase.currentQuantity %> шт.</dd></div>
-                        <div><dt>С активной проблемой</dt><dd><%= problemCase.activeProblemQuantity %> шт.</dd></div>
-                        <div><dt>Без изоляции</dt><dd><%= problemCase.unisolatedProblemQuantity %> шт.</dd></div>
-                        <div><dt>Статус изоляции</dt><dd><%= problemCase.isolationStatusLabel %></dd></div>
-                        <div><dt>Состояние здоровья</dt><dd><%= problemCase.healthStatusLabel %></dd></div>
-                        <div><dt>Зафиксировал</dt><dd><%= problemCase.reportedBy %></dd></div>
-                      </dl>
+                              <dl class="problems-case-facts">
+                                <% problemCase.agronomyFields.forEach((field) => { %>
+                                  <div class="problems-case-fact-row">
+                                    <dt><%= field.label %></dt>
+                                    <dd><%= field.value %></dd>
+                                  </div>
+                                <% }) %>
+                              </dl>
 
-                      <% if (problemCase.originType === 'problemisolation') { %>
-                        <div class="problems-case-note">
-                          <strong>Изолированная партия.</strong>
-                          <% if (problemCase.parentBatch) { %>
-                            <span>Происхождение: <%= problemCase.parentBatch.title %> · <%= problemCase.parentBatch.code %></span>
-                          <% } else { %>
-                            <span>Происхождение: родительская партия не найдена в текущем dataset.</span>
-                          <% } %>
+                              <div class="problems-case-footer">
+                                <div class="problems-case-last-action">
+                                  <span>Последнее действие</span>
+                                  <strong><%= problemCase.lastAction.title %></strong>
+                                  <% if (problemCase.lastAction.atLabel) { %>
+                                    <small><%= problemCase.lastAction.atLabel %></small>
+                                  <% } %>
+                                </div>
+
+                                <div class="problems-case-actions">
+                                  <a class="dashboard-card-link" href="<%= problemCase.journalUrl %>">Открыть журнал</a>
+                                  <a class="dashboard-card-link" href="<%= problemCase.passportUrl %>">Открыть паспорт</a>
+                                </div>
+                              </div>
+                            </article>
+                          <% }) %>
                         </div>
-                      <% } else if (problemCase.parentBatch) { %>
-                        <div class="problems-case-note">
-                          <strong>Связанная партия.</strong>
-                          <span>Родительская партия: <%= problemCase.parentBatch.title %> · <%= problemCase.parentBatch.code %></span>
-                        </div>
-                      <% } %>
-
-                      <% if (problemCase.latestActionTitle) { %>
-                        <div class="problems-case-timeline">Последнее действие: <strong><%= problemCase.latestActionTitle %></strong> · <%= problemCase.latestActionAtLabel %></div>
-                      <% } %>
-
-                      <div class="problems-case-actions">
-                        <a class="dashboard-card-link" href="<%= problemCase.passportUrl %>">Открыть паспорт</a>
-                        <a class="dashboard-card-link" href="<%= problemCase.journalUrl %>">Открыть журнал</a>
-                      </div>
-                    </article>
+                      </section>
+                    <% } %>
                   <% }) %>
                 </div>
               <% } else { %>
@@ -137,51 +139,77 @@
               <% } %>
             </article>
 
-            <article class="dashboard-card report-section-card">
-              <div class="dashboard-card-head">
-                <div>
-                  <h2>По типам проблем</h2>
-                  <p>Сводка по отфильтрованному набору.</p>
+            <% if (problems.groupedCases.rightSections.length) { %>
+              <article class="dashboard-card report-section-card">
+                <div class="dashboard-card-head">
+                  <div>
+                    <h2><%= problems.groupedCases.rightTitle %></h2>
+                    <p><%= problems.groupedCases.rightDescription %></p>
+                  </div>
                 </div>
-              </div>
 
-              <% if (problems.problemTypeSummary.length) { %>
-                <div class="report-stage-summary">
-                  <% problems.problemTypeSummary.forEach((item) => { %>
-                    <article class="report-stage-row">
-                      <strong><%= item.label %></strong>
-                      <span><%= item.count %> шт.</span>
-                      <span></span>
-                    </article>
-                  <% }) %>
-                </div>
-              <% } else { %>
-                <div class="dashboard-inline-empty">Нет данных по типам проблем.</div>
-              <% } %>
-            </article>
+                <% if (problems.groupedCases.rightSections.some((section) => section.cases.length)) { %>
+                  <div class="problems-column-sections">
+                    <% problems.groupedCases.rightSections.forEach((section) => { %>
+                      <% if (section.cases.length) { %>
+                        <section class="problems-column-section">
+                          <div class="problems-column-section-head">
+                            <h3><%= section.title %></h3>
+                            <span><%= section.cases.length %></span>
+                          </div>
+                          <div class="problems-case-list">
+                            <% section.cases.forEach((problemCase) => { %>
+                              <article class="problems-case-card problems-case-card-<%= problemCase.statusKey %>">
+                                <div class="problems-case-head">
+                                  <div class="problems-case-title">
+                                    <strong><%= problemCase.title %></strong>
+                                    <span class="problems-case-status-text"><%= problemCase.headerStatus %></span>
+                                  </div>
+                                </div>
 
-            <article class="dashboard-card report-section-card">
-              <div class="dashboard-card-head">
-                <div>
-                  <h2>По уровню риска</h2>
-                  <p>Приоритет от критического к низкому.</p>
-                </div>
-              </div>
+                                <div class="problems-case-meta-line" aria-label="Сводка по партии">
+                                  <% problemCase.metaLine.forEach((item, index) => { %>
+                                    <span>
+                                      <%= item %><%= index < problemCase.metaLine.length - 1 ? ' ·' : '' %>
+                                    </span>
+                                  <% }) %>
+                                </div>
 
-              <% if (problems.riskSummary.length) { %>
-                <div class="report-stage-summary">
-                  <% problems.riskSummary.forEach((item) => { %>
-                    <article class="report-stage-row">
-                      <strong><%= item.label %></strong>
-                      <span><%= item.count %> шт.</span>
-                      <span></span>
-                    </article>
-                  <% }) %>
-                </div>
-              <% } else { %>
-                <div class="dashboard-inline-empty">Нет данных по рискам.</div>
-              <% } %>
-            </article>
+                                <dl class="problems-case-facts">
+                                  <% problemCase.agronomyFields.forEach((field) => { %>
+                                    <div class="problems-case-fact-row">
+                                      <dt><%= field.label %></dt>
+                                      <dd><%= field.value %></dd>
+                                    </div>
+                                  <% }) %>
+                                </dl>
+
+                                <div class="problems-case-footer">
+                                  <div class="problems-case-last-action">
+                                    <span>Последнее действие</span>
+                                    <strong><%= problemCase.lastAction.title %></strong>
+                                    <% if (problemCase.lastAction.atLabel) { %>
+                                      <small><%= problemCase.lastAction.atLabel %></small>
+                                    <% } %>
+                                  </div>
+
+                                  <div class="problems-case-actions">
+                                    <a class="dashboard-card-link" href="<%= problemCase.journalUrl %>">Открыть журнал</a>
+                                    <a class="dashboard-card-link" href="<%= problemCase.passportUrl %>">Открыть паспорт</a>
+                                  </div>
+                                </div>
+                              </article>
+                            <% }) %>
+                          </div>
+                        </section>
+                      <% } %>
+                    <% }) %>
+                  </div>
+                <% } else { %>
+                  <div class="dashboard-inline-empty">По выбранным фильтрам решенные кейсы не найдены.</div>
+                <% } %>
+              </article>
+            <% } %>
           </section>
         <% } %>
       </div>
