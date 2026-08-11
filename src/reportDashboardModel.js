@@ -76,24 +76,56 @@ function mergeReportPhotos(report, batches, eventPhotos) {
   const photos = new Map((eventPhotos || []).map((photo) => [photo.url, photo]));
   const getPhotoUrl = report && typeof report.getPhotoUrl === 'function' ? report.getPhotoUrl.bind(report) : () => '';
   const employeeName = resolveEmployee(report).name;
+  const reportId = report && report.reportId ? String(report.reportId) : '';
 
   for (const batch of batches) {
     for (const photoPath of batch.photoFiles || []) {
       const url = getPhotoUrl(photoPath);
       if (!url || photos.has(url)) continue;
+      const journalUrl = buildBatchPhotoJournalUrl(batch.batchKey, reportId);
       photos.set(url, {
+        key: `${batch.batchKey}|${photoPath}`,
         url,
+        photoUrls: [url],
+        photoCount: 1,
+        extraPhotoCount: 0,
         label: `${batch.code} · ${batch.title}`,
         code: batch.code,
+        title: batch.title,
         eventTitle: 'Фото партии',
+        eventLabel: 'Фото партии',
         createdBy: employeeName,
         timestamp: batch.snapshotAt || 0,
-        dateLabel: formatImportDate(batch.updatedAt || batch.createdAt)
+        dateLabel: formatImportDate(batch.updatedAt || batch.createdAt),
+        journalUrl,
+        modal: {
+          title: batch.title,
+          code: batch.code,
+          eventLabel: 'Фото партии',
+          dateLabel: formatImportDate(batch.updatedAt || batch.createdAt),
+          employeeLabel: employeeName,
+          comment: '',
+          journalUrl,
+          details: [
+            { label: 'Код партии', value: batch.code },
+            { label: 'Стадия', value: batch.stage || 'Без стадии' }
+          ],
+          photos: [{ url, alt: `${batch.title} · ${batch.code}` }]
+        }
       });
     }
   }
 
-  return [...photos.values()].sort((left, right) => right.timestamp - left.timestamp);
+  return [...photos.values()].sort((left, right) => (left.priority || 99) - (right.priority || 99) || right.timestamp - left.timestamp);
+}
+
+function buildBatchPhotoJournalUrl(batchKey, reportId) {
+  if (!batchKey) return '';
+  const params = new URLSearchParams();
+  if (reportId) params.set('reportId', reportId);
+  params.set('batchId', batchKey);
+  const query = params.toString();
+  return query ? `/stages?${query}#passport` : '/stages#passport';
 }
 
 function formatImportInfo(value) {

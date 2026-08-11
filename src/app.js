@@ -10,6 +10,7 @@ const { buildReportDashboardModel } = require('./reportDashboardModel');
 const { buildReportsPageModel, buildReportsContentModel, resolveReportEmployeeKey } = require('./reportsPageModel');
 const { buildJournalPageModel } = require('./journalPageModel');
 const { buildStagesPageModel } = require('./stagesPageModel');
+const { buildPhotosPageModel } = require('./photosPageModel');
 const {
   listReports,
   clearAllReports,
@@ -278,6 +279,27 @@ function createApp() {
         selectedReport,
         reportDashboard,
         reportsContent
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get('/photos', async (req, res, next) => {
+    try {
+      const reports = await listReports();
+      const detailedReports = await Promise.all(reports.map((report) => getReport(report.reportId)));
+      const loadedReports = detailedReports.filter(Boolean);
+      const requestedReportId = parseRequestedReportId(req.query.reportId);
+      const selectedReport = requestedReportId
+        ? loadedReports.find((report) => report.reportId === requestedReportId) || null
+        : null;
+      const photosPage = buildPhotosPageModel(loadedReports, req.query, selectedReport);
+
+      res.render('photos', {
+        pageTitle: photosPage.pageTitle,
+        showDashboardLink: reports.length > 0,
+        photosPage
       });
     } catch (error) {
       next(error);

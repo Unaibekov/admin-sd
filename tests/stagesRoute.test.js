@@ -280,3 +280,46 @@ run('GET /stages keeps server-side filters in URL and filters cards by employee,
     }
   });
 });
+
+run('GET /stages renders journal photo thumbnails for batch events', async () => {
+  await withTempDir(async (dataDir) => {
+    const { reportStore, createApp } = loadModules(dataDir);
+
+    const report = buildReport('stages-photos', [
+      buildCard({
+        cardId: 'photo-card-1',
+        code: 'PHOTO-1',
+        stage: 'РўРµРїР»РёС†Р°',
+        events: [{
+          eventId: 'photo-event-1',
+          type: 'problem',
+          title: 'РџСЂРѕР±Р»РµРјР°',
+          createdAt: '2026-08-07T09:30:00.000Z',
+          photoFiles: ['photos/event-1.jpg']
+        }]
+      })
+    ], {
+      userId: 'anna',
+      displayName: 'Anna Ivanova',
+      deviceId: 'device-a'
+    });
+
+    const zipPath = path.join(dataDir, `${report.reportId}.zip`);
+    await fs.writeFile(zipPath, createZip([
+      { name: 'report.json', data: JSON.stringify(report) },
+      { name: 'photos/event-1.jpg', data: Buffer.from([1, 2, 3]) }
+    ]));
+    await reportStore.processUploadedReport(zipPath, `${report.reportId}.zip`);
+
+    const server = await startServer(createApp());
+    try {
+      const response = await request(server, '/stages?batchId=device-a%3A%3Aphoto-card-1&tab=journal');
+      assert.equal(response.statusCode, 200);
+      assert.match(response.body, /global-journal-photo/);
+      assert.match(response.body, /\/reports\/stages-photos\/photos\/photos\/event-1\.jpg/);
+      assert.match(response.body, /data-photo-url=/);
+    } finally {
+      server.close();
+    }
+  });
+});

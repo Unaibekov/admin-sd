@@ -50,7 +50,7 @@
 </article>
 
 <article class="dashboard-card dashboard-gallery-card report-dashboard-section">
-  <div class="dashboard-card-head"><div><h2>Фотографии отчета</h2><p>Фотографии, прикрепленные к событиям и карточкам этого отчета.</p></div></div>
+  <div class="dashboard-card-head"><div><h2>Фотографии отчета</h2><p>Фотографии, прикрепленные к событиям и карточкам этого отчета.</p></div><a class="dashboard-card-link" href="/photos?reportId=<%= encodeURIComponent(report.reportId) %>">Все фотофиксации</a></div>
   <%- include('dashboard-gallery', { photos: reportDashboard.recentPhotos, emptyText: 'В этом отчете нет фотографий.' }) %>
 </article>
 </section>

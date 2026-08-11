@@ -1,0 +1,42 @@
+﻿<%- include('partials/head', { pageTitle: photosPage.pageTitle }) %>
+<div class="app-shell">
+  <%- include('partials/sidebar', { activePage: 'photos', showDashboardLink }) %>
+
+  <main class="app-main app-main-report-dashboard">
+    <section class="report-dashboard-page">
+      <div class="report-dashboard-shell photos-page-shell">
+        <header class="report-dashboard-head photos-page-head">
+          <div>
+            <h1><%= photosPage.title %> - <%= photosPage.totalItems %></h1>
+            <p><%= photosPage.description %></p>
+            <% if (photosPage.selectedReportEmployee) { %><p class="photos-page-scope">Сотрудник: <strong><%= photosPage.selectedReportEmployee %></strong></p><% } %>
+          </div>
+        </header>
+
+        <article class="dashboard-card dashboard-gallery-card photos-page-card">
+          <% if (photosPage.hasPhotos) { %>
+            <%- include('partials/dashboard-gallery', { photos: photosPage.photos, emptyText: 'Фотофиксаций нет.', compact: true }) %>
+          <% } else { %>
+            <div class="dashboard-inline-empty">Фотофиксаций пока нет.</div>
+          <% } %>
+        </article>
+
+        <% if (photosPage.hasPagination) { %>
+          <% const photosUrl = (page) => {
+            const params = new URLSearchParams();
+            if (photosPage.selectedReportId) params.set('reportId', photosPage.selectedReportId);
+            if (page > 1) params.set('page', page);
+            const query = params.toString();
+            return `/photos${query ? `?${query}` : ''}`;
+          }; %>
+          <nav class="dashboard-pagination photos-page-pagination" aria-label="Навигация по страницам фото">
+            <a class="dashboard-card-link <%= photosPage.page <= 1 ? 'is-disabled' : '' %>" href="<%= photosUrl(photosPage.page - 1) %>">Назад</a>
+            <span class="dashboard-pagination-info">Страница <%= photosPage.page %> из <%= photosPage.totalPages %></span>
+            <a class="dashboard-card-link <%= photosPage.page >= photosPage.totalPages ? 'is-disabled' : '' %>" href="<%= photosUrl(photosPage.page + 1) %>">Вперёд</a>
+          </nav>
+        <% } %>
+      </div>
+    </section>
+  </main>
+</div>
+<%- include('partials/footer') %>

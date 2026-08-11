@@ -1,4 +1,4 @@
-(function () {
+﻿(function () {
   const initBatchTabs = (root = document) => {
     const batchTabs = root.querySelector('.batch-tabs');
     const batchPanels = Array.from(root.querySelectorAll('.batch-tab-panel'));
@@ -251,7 +251,7 @@
       if (uploadLoader) uploadLoader.hidden = false;
       if (uploadTrigger) {
         uploadTrigger.disabled = true;
-        uploadTrigger.textContent = 'Загружаем...';
+        uploadTrigger.textContent = 'Р—Р°РіСЂСѓР¶Р°РµРј...';
       }
     };
 
@@ -469,10 +469,10 @@
       syncPanels();
 
       if (selectedStageLabel) {
-        selectedStageLabel.textContent = readActiveButtonLabel(stageButtons) || 'Все стадии';
+        selectedStageLabel.textContent = readActiveButtonLabel(stageButtons) || 'Р’СЃРµ СЃС‚Р°РґРёРё';
       }
       if (selectedEmployeeLabel) {
-        selectedEmployeeLabel.textContent = readActiveButtonLabel(employeeButtons) || 'Все сотрудники';
+        selectedEmployeeLabel.textContent = readActiveButtonLabel(employeeButtons) || 'Р’СЃРµ СЃРѕС‚СЂСѓРґРЅРёРєРё';
       }
       if (selectionSummary) {
         selectionSummary.hidden = false;
@@ -749,38 +749,166 @@
   if (!lightbox) return;
 
   const image = lightbox.querySelector('.lightbox-image');
-  const caption = lightbox.querySelector('.lightbox-caption');
   const closeButtons = lightbox.querySelectorAll('.lightbox-close, .lightbox-backdrop');
-  const thumbButtons = document.querySelectorAll('[data-photo-url]');
+  const panel = lightbox.querySelector('.lightbox-panel');
+  const metaLine = lightbox.querySelector('[data-photo-meta]');
+  const title = lightbox.querySelector('[data-photo-title]');
+  const subtitle = lightbox.querySelector('[data-photo-subtitle]');
+  const eventLabel = lightbox.querySelector('[data-photo-event]');
+  const detailsWrap = lightbox.querySelector('[data-photo-details-wrap]');
+  const detailsGrid = lightbox.querySelector('[data-photo-details]');
+  const journalLink = lightbox.querySelector('[data-photo-journal]');
+  const navigation = lightbox.querySelector('[data-photo-navigation]');
+  const prevButton = lightbox.querySelector('[data-photo-prev]');
+  const nextButton = lightbox.querySelector('[data-photo-next]');
+  const counter = lightbox.querySelector('[data-photo-counter]');
 
-  function open(url, label) {
-    image.src = url;
-    image.alt = label || '';
-    caption.textContent = label || '';
+  let activePayload = null;
+  let activeIndex = 0;
+  let activeTrigger = null;
+
+  function safeParsePayload(button) {
+    if (button.dataset.photoPayload) {
+      try {
+        return JSON.parse(button.dataset.photoPayload);
+      } catch (_error) {
+        return null;
+      }
+    }
+
+    if (button.dataset.photoUrl) {
+        return {
+          metaLine: '',
+          title: '',
+          subtitle: '',
+          eventLabel: button.dataset.photoLabel || 'Фото',
+          eventDetails: [],
+          journalUrl: '',
+          photos: [{ url: button.dataset.photoUrl, alt: button.dataset.photoLabel || 'Фото' }]
+        };
+    }
+
+    return null;
+  }
+
+  function renderPhoto() {
+    if (!activePayload || !Array.isArray(activePayload.photos) || !activePayload.photos.length) return;
+    const photo = activePayload.photos[activeIndex] || activePayload.photos[0];
+    image.src = photo.url;
+    image.alt = photo.alt || activePayload.title || activePayload.eventLabel || 'Фото';
+    if (metaLine) {
+      metaLine.textContent = activePayload.metaLine || '';
+      metaLine.hidden = !activePayload.metaLine;
+    }
+    if (title) {
+      title.textContent = activePayload.title || '';
+      title.hidden = !activePayload.title;
+    }
+    if (subtitle) {
+      subtitle.textContent = activePayload.subtitle || '';
+      subtitle.hidden = !activePayload.subtitle;
+    }
+    if (eventLabel) {
+      eventLabel.textContent = activePayload.eventLabel || '';
+      eventLabel.hidden = !activePayload.eventLabel;
+    }
+    if (detailsGrid) {
+      detailsGrid.replaceChildren();
+      const eventDetails = Array.isArray(activePayload.eventDetails) ? activePayload.eventDetails : [];
+      eventDetails.forEach((item) => {
+        if (!item || !item.label || !item.value) return;
+        const row = document.createElement('div');
+        row.className = 'photo-modal-detail-item';
+        const dt = document.createElement('dt');
+        dt.textContent = item.label;
+        const dd = document.createElement('dd');
+        dd.textContent = item.value;
+        row.append(dt, dd);
+        detailsGrid.append(row);
+      });
+      if (detailsWrap) {
+        detailsWrap.hidden = detailsGrid.children.length === 0;
+      }
+    } else if (detailsWrap) {
+      detailsWrap.hidden = true;
+    }
+
+    if (activePayload.journalUrl) {
+      journalLink.hidden = false;
+      journalLink.href = activePayload.journalUrl;
+    } else {
+      journalLink.hidden = true;
+      journalLink.removeAttribute('href');
+    }
+
+    const photoCount = activePayload.photos.length;
+    navigation.hidden = photoCount < 2;
+    prevButton.disabled = activeIndex <= 0;
+    nextButton.disabled = activeIndex >= photoCount - 1;
+    counter.textContent = `${activeIndex + 1} / ${photoCount}`;
+  }
+
+  function open(payload, trigger) {
+    activePayload = payload;
+    activeIndex = 0;
+    activeTrigger = trigger || null;
+    renderPhoto();
     lightbox.hidden = false;
+    lightbox.setAttribute('aria-hidden', 'false');
     document.body.style.overflow = 'hidden';
+    panel.focus();
   }
 
   function close() {
     lightbox.hidden = true;
+    lightbox.setAttribute('aria-hidden', 'true');
     image.src = '';
-    caption.textContent = '';
     document.body.style.overflow = '';
+    if (activeTrigger && typeof activeTrigger.focus === 'function') {
+      activeTrigger.focus();
+    }
+    activePayload = null;
+    activeIndex = 0;
+    activeTrigger = null;
   }
 
-  thumbButtons.forEach((button) => {
-    button.addEventListener('click', () => {
-      open(button.dataset.photoUrl, button.dataset.photoLabel);
-    });
+  function move(step) {
+    if (!activePayload || !Array.isArray(activePayload.photos)) return;
+    const nextIndex = activeIndex + step;
+    if (nextIndex < 0 || nextIndex >= activePayload.photos.length) return;
+    activeIndex = nextIndex;
+    renderPhoto();
+  }
+
+  document.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-photo-card], [data-photo-url]');
+    if (!button) return;
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    const payload = safeParsePayload(button);
+    if (payload) open(payload, button);
   });
 
   closeButtons.forEach((button) => {
     button.addEventListener('click', close);
   });
 
+  if (prevButton) prevButton.addEventListener('click', () => move(-1));
+  if (nextButton) nextButton.addEventListener('click', () => move(1));
+
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && !lightbox.hidden) {
+    if (lightbox.hidden) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
       close();
+    }
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault();
+      move(-1);
+    }
+    if (event.key === 'ArrowRight') {
+      event.preventDefault();
+      move(1);
     }
   });
 })();
+

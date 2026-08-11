@@ -187,6 +187,15 @@
                       <h3 class="batch-journal-date"><%= group.label %></h3>
                       <% group.events.forEach(({ event, timeLabel }) => { %><article data-event-id="<%= event.eventId %>"><time><%= timeLabel %></time><div><strong><%= event.title %></strong>
                         <% if (event.details.length) { %><dl class="batch-event-details"><% event.details.forEach((item) => { %><dt><%= item.label %></dt><dd><%= item.value %></dd><% }) %></dl><% } %>
+                        <% if (event.photos && event.photos.length) { %>
+                          <div class="global-journal-photos">
+                            <% event.photos.forEach((photo, photoIndex) => { const photoUrl = `/reports/${encodeURIComponent(selected.reportId)}/photos/${photo.split('/').map(encodeURIComponent).join('/')}`; %>
+                              <button type="button" class="global-journal-photo" data-photo-url="<%= photoUrl %>" data-photo-label="<%= event.title %>, <%= selected.code %>">
+                                <img src="<%= photoUrl %>" alt="Фото события <%= photoIndex + 1 %>" />
+                              </button>
+                            <% }) %>
+                          </div>
+                        <% } %>
                         </div></article><% }) %>
                     </section>
                   <% }) %>

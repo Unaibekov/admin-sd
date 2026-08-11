@@ -1,12 +1,42 @@
+﻿<% const isCompact = typeof compact === 'boolean' ? compact : false; %>
 <% if (photos && photos.length) { %>
   <div class="dashboard-gallery dashboard-gallery-managed">
-    <% photos.forEach((photo) => { %>
-      <button type="button" class="dashboard-thumb" data-photo-url="<%= photo.url %>" data-photo-label="<%= photo.label %><%= photo.dateLabel ? `, ${photo.dateLabel}` : '' %><%= photo.createdBy ? `, ${photo.createdBy}` : '' %>">
-        <span class="dashboard-thumb-image"><img src="<%= photo.url %>" alt="<%= photo.label %>" loading="lazy"></span>
-        <span class="dashboard-thumb-caption"><strong><%= photo.code %></strong><span><%= photo.eventTitle %><%= photo.dateLabel ? ` · ${photo.dateLabel}` : '' %></span><% if (photo.createdBy) { %><em><%= photo.createdBy %></em><% } %></span>
+    <% photos.forEach((photo) => {
+      const compactCard = photo.card || {};
+      const modalPayload = photo.modal || {
+        title: photo.title || photo.label || photo.code || 'Фото',
+        code: photo.code || '',
+        eventLabel: photo.eventLabel || photo.eventTitle || '',
+        dateLabel: photo.dateLabel || '',
+        employeeLabel: photo.createdBy || '',
+        comment: '',
+        journalUrl: photo.journalUrl || '',
+        details: [],
+        photos: (photo.photoUrls || [photo.url]).filter(Boolean).map((url, index) => ({
+          url,
+          alt: `${photo.title || photo.code || 'Фото'} ${index + 1}`
+        }))
+      };
+    %>
+      <button
+        type="button"
+        class="dashboard-thumb dashboard-photo-card<%= isCompact ? ' dashboard-photo-card-compact' : '' %>"
+        data-photo-card="<%= photo.key || photo.url %>"
+        data-photo-payload="<%= JSON.stringify(modalPayload) %>"
+      >
+        <span class="dashboard-thumb-image">
+          <img src="<%= (isCompact ? compactCard.imageUrl : photo.url) || photo.url %>" alt="<%= modalPayload.photos[0] && modalPayload.photos[0].alt ? modalPayload.photos[0].alt : (photo.label || 'Фото') %>" loading="lazy">
+          <% if ((isCompact ? compactCard.extraPhotoCount : photo.extraPhotoCount) > 0) { %><span class="dashboard-thumb-count">+<%= isCompact ? compactCard.extraPhotoCount : photo.extraPhotoCount %></span><% } %>
+        </span>
+        <span class="dashboard-thumb-caption">
+          <strong><%= isCompact ? (compactCard.title || photo.title || photo.code) : (photo.title || photo.code) %></strong>
+          <% if (!isCompact && photo.code) { %><span class="dashboard-thumb-code"><%= photo.code %></span><% } %>
+          <span><%= isCompact ? (compactCard.eventLabel || photo.eventLabel || photo.eventTitle) : (photo.eventLabel || photo.eventTitle) %></span>
+          <% if (isCompact ? compactCard.dateLabel : photo.dateLabel) { %><small><%= isCompact ? compactCard.dateLabel : photo.dateLabel %></small><% } %>
+        </span>
       </button>
     <% }) %>
   </div>
 <% } else { %>
-  <div class="dashboard-inline-empty"><%= emptyText || 'Фотографий пока нет.' %></div>
+  <div class="dashboard-inline-empty"><%= emptyText || 'Фотофиксаций пока нет.' %></div>
 <% } %>

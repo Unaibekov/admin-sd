@@ -43,7 +43,10 @@ function buildDashboard(reports = [], selectedReport = null, reportModels = [], 
   const visibleAttentionBatches = attentionBatches.slice(0, 5);
   const current = getCurrentMetrics(batches, attentionBatches);
   const employeeActivity = disambiguateDashboardEmployeeActivity(getEmployeeActivityStable(sourceReports, periodEvents, periodReports));
-  const recentPhotos = getRecentPhotos(periodEvents);
+  const recentPhotos = getRecentPhotos(periodEvents, {
+    reportId: selectedReportId,
+    employee: String(query.employee || '').trim()
+  });
   const productionMetrics = getProductionMetrics(periodEvents);
   const recentEvents = periodEvents.filter(isUserInitiatedEvent).sort(byNewest);
   const recentReports = disambiguateDashboardRecentReports(getLatestReportsByEmployee(periodReports, reports));
@@ -76,7 +79,7 @@ function buildDashboard(reports = [], selectedReport = null, reportModels = [], 
     attentionEvents: buildAttentionEvents(visibleAttentionBatches),
     employeeActivity: employeeActivity.slice(0, 5),
     recentReports,
-    recentPhotos: recentPhotos.slice(0, 12),
+    recentPhotos: takeEvenRecentPhotos(recentPhotos, 8),
     productionMetrics,
     current
   };
@@ -253,6 +256,8 @@ function normalizeDashboardEvent(rawEvent = {}, rawCard = {}, report = {}, batch
     employeeKey,
     role: normalizeRole(employeeDirectory.get(`${normalizeText(createdById)}:role`) || report.user && report.user.role || ''),
     quantity: getQuantity(rawEvent),
+    affectedQuantity: getPositiveQuantity(firstValue(rawEvent.affectedQuantity, rawEvent.extraFields && rawEvent.extraFields.affectedQuantity)),
+    recoveredQuantity: getPositiveQuantity(firstValue(rawEvent.recoveredQuantity, rawEvent.extraFields && rawEvent.extraFields.recoveredQuantity)),
     previousQuantity: getPositiveQuantity(rawEvent.previousQuantity),
     currentQuantity: getPositiveQuantity(rawEvent.currentQuantity),
     totalQuantity: getPositiveQuantity(firstValue(rawEvent.totalQuantity, rawEvent.extraFields && rawEvent.extraFields.totalQuantity, rawCard.quantity, rawCard.currentQuantity)),
@@ -498,28 +503,270 @@ function disambiguateDashboardLabels(items = [], labelField, keyField) {
   });
 }
 
-function getRecentPhotos(events = []) {
+function getRecentPhotos(events = [], context = {}) {
   const photos = new Map();
   for (const event of events) {
-    for (const path of event.photoFiles) {
-      const url = event.getPhotoUrl(path);
-      if (!url) continue;
-      const key = `${event.key}|${path}`;
-      if (!photos.has(key)) {
-        photos.set(key, {
-          key,
-          url,
-          label: `${event.code} · ${event.title}`,
-          code: event.code,
-          eventTitle: event.title,
-          createdBy: event.createdBy,
-          timestamp: event.timestamp,
-          dateLabel: formatDateTime(event.timestamp)
-        });
-      }
-    }
+    const card = buildRecentPhotoCard(event, context);
+    if (card) photos.set(card.key, card);
   }
-  return [...photos.values()].sort(byNewest);
+  return [...photos.values()].sort(sortRecentPhotoCards);
+}
+
+function buildRecentPhotoCard(event = {}, context = {}) {
+  const photoUrls = uniqueStrings((event.photoFiles || []).map((path) => event.getPhotoUrl(path)).filter(Boolean));
+  if (!photoUrls.length) return null;
+
+  const eventType = normalizeText(event.type);
+  const eventLabel = buildPhotoEventLabel(event);
+  const compactTitle = buildCompactPhotoTitle(event.culture, event.code);
+  const compactEventLabel = buildCompactPhotoEventLabel(event);
+  const riskKey = normalizeRisk(event.risk);
+  const riskLabel = riskKey ? formatRisk(riskKey) : '';
+  const problemTypeLabel = firstValue(event.problem, event.problemDescription);
+  const quantity = eventType === 'problemrecovery'
+    ? firstPositiveQuantity(event.recoveredQuantity, event.quantity, event.count, event.currentQuantity)
+    : firstPositiveQuantity(event.affectedQuantity, event.quantity, event.count, event.currentQuantity);
+  const details = buildRecentPhotoDetails(event, { quantity });
+  const journalUrl = buildRecentPhotoJournalUrl(event, context);
+  const modal = {
+    metaLine: buildPhotoModalMetaLine(event),
+    title: compactTitle || event.culture,
+    subtitle: buildPhotoModalSubtitle(event),
+    eventLabel: compactEventLabel,
+    riskLabel,
+    dateLabel: formatCompactPhotoDate(event.timestamp),
+    journalUrl,
+    eventDetails: details,
+    photos: photoUrls.map((url, index) => ({
+      url,
+      alt: buildRecentPhotoAlt(event, index, photoUrls.length)
+    }))
+  };
+
+  return {
+    key: event.key,
+    url: photoUrls[0],
+    photoUrls,
+    photoCount: photoUrls.length,
+    extraPhotoCount: Math.max(0, photoUrls.length - 1),
+    label: `${event.code} · ${event.title}`,
+    code: event.code,
+    title: event.culture,
+    eventTitle: event.title,
+    eventLabel,
+    createdBy: event.createdBy,
+    timestamp: event.timestamp,
+    dateLabel: formatDateTime(event.timestamp),
+    riskLabel,
+    problemTypeLabel,
+    journalUrl,
+    eventId: event.eventId,
+    batchKey: event.batchKey,
+    priority: getRecentPhotoPriority(event),
+    card: {
+      imageUrl: photoUrls[0],
+      title: compactTitle,
+      eventLabel: compactEventLabel,
+      eventLabelText: buildCompactPhotoEventMetaLabel(event, compactEventLabel),
+      riskLabel,
+      dateLabel: formatCompactPhotoDate(event.timestamp),
+      extraPhotoCount: Math.max(0, photoUrls.length - 1),
+      modalId: event.key
+    },
+    modal
+  };
+}
+
+function buildRecentPhotoDetails(event = {}, { quantity = 0 } = {}) {
+  const eventType = normalizeText(event.type);
+  const details = [];
+  const push = (label, value) => {
+    const text = String(value || '').trim();
+    if (text && !details.some((item) => item.label === label && item.value === text)) {
+      details.push({ label, value: text });
+    }
+  };
+  const eventLabel = buildCompactPhotoEventLabel(event);
+  const riskKey = normalizeRisk(event.risk);
+  const totalQuantity = getPositiveQuantity(event.totalQuantity);
+  const location = firstValue(event.location);
+  const stage = firstValue(event.stage);
+  const problemType = firstValue(event.problem, event.title) || 'Проблема';
+
+  if (eventType === 'problem') {
+    if (quantity) push('Затронуто', formatCountWithTotalLabel(quantity, totalQuantity));
+    if (shouldShowProblemTypeDetail(problemType, eventLabel)) push('Тип проблемы', problemType);
+    if (riskKey) push('Риск', formatRisk(riskKey));
+    push('Описание', firstValue(event.problemDescription));
+    push('Комментарий', firstValue(event.comment));
+    return details;
+  }
+
+  if (['quarantine', 'contamination', 'greenhousedisease'].includes(eventType)) {
+    if (quantity) push('Затронуто', formatCountWithTotalLabel(quantity, totalQuantity));
+    if (shouldShowProblemTypeDetail(problemType, eventLabel)) push('Тип проблемы', problemType);
+    if (riskKey) push('Риск', formatRisk(riskKey));
+    push('Описание', firstValue(event.problemDescription));
+    push('Комментарий', firstValue(event.comment));
+    push('Стадия', stage);
+    push('Локация', location);
+    return details;
+  }
+
+  if (eventType === 'problemisolation' || eventType === 'isolatedfromparent') {
+    push('Событие', 'Изоляция проблемных растений');
+    push('Источник', firstValue(event.parentCode, event.parentCardId, event.code));
+    if (quantity) push('Изолировано', formatCountLabel(quantity, ['растение', 'растения', 'растений']));
+    push('Новая партия', firstValue(event.childCode, event.childCardId));
+    push('Статус', 'В изоляции');
+    return details;
+  }
+
+  if (eventType === 'problemrecovery') {
+    push('Событие', 'Проблема решена');
+    if (quantity) push('Восстановлено', formatCountLabel(quantity, ['растение', 'растения', 'растений']));
+    push('Статус', 'Здоровое состояние');
+    push('Дата восстановления', formatPhotoModalDateTime(event.timestamp));
+    return details;
+  }
+
+  push('Событие', eventLabel);
+  push('Стадия', stage);
+  push('Локация', location);
+  push('Комментарий', firstValue(event.comment));
+  return details;
+}
+
+function buildRecentPhotoJournalUrl(event = {}, context = {}) {
+  if (!event.batchKey) return '';
+  const params = new URLSearchParams();
+  if (context.reportId) params.set('reportId', String(context.reportId));
+  if (context.employee) params.set('employee', String(context.employee));
+  params.set('batchId', String(event.batchKey));
+  params.set('tab', 'journal');
+  if (event.eventId) params.set('eventId', String(event.eventId));
+  const query = params.toString();
+  return query ? `/stages?${query}#journal` : '/stages#journal';
+}
+
+function buildPhotoEventLabel(event = {}) {
+  const eventType = normalizeText(event.type);
+  if (eventType === 'problem') {
+    const parts = [firstValue(event.problem, event.problemDescription, event.title)];
+    const riskKey = normalizeRisk(event.risk);
+    if (riskKey) parts.push(`${formatRisk(riskKey)} риск`);
+    return parts.filter(Boolean).join(' · ');
+  }
+
+  if (eventType === 'problemisolation' || eventType === 'isolatedfromparent') {
+    const parts = ['Изоляция проблемных растений'];
+    if (event.childCode) parts.push(event.childCode);
+    return parts.join(' · ');
+  }
+
+  if (eventType === 'problemrecovery') {
+    return 'Проблема решена';
+  }
+
+  return event.title || 'Событие';
+}
+
+function buildCompactPhotoEventLabel(event = {}) {
+  const eventType = normalizeText(event.type);
+  if (eventType === 'problem') {
+    return 'Проблема';
+  }
+
+  if (eventType === 'problemisolation' || eventType === 'isolatedfromparent') {
+    return 'Изоляция проблемных растений';
+  }
+
+  if (eventType === 'problemrecovery') {
+    return 'Проблема решена';
+  }
+
+  if (eventType === 'quarantine') {
+    return 'Проблема';
+  }
+
+  return event.title || 'Событие';
+}
+
+function buildCompactPhotoEventMetaLabel(event = {}, compactEventLabel = '') {
+  const eventType = normalizeText(event.type);
+  if (['problem', 'contamination', 'quarantine', 'greenhousedisease'].includes(eventType)) {
+    return compactEventLabel ? `Тип проблемы: ${compactEventLabel}` : '';
+  }
+  return compactEventLabel;
+}
+
+function buildPhotoModalMetaLine(event = {}) {
+  const parts = [];
+  const date = formatPhotoModalHeaderDate(event.timestamp);
+  if (date) parts.push(date);
+  if (event.createdBy) parts.push(String(event.createdBy).trim());
+  return parts.filter(Boolean).join(' · ');
+}
+
+function buildPhotoModalSubtitle(event = {}) {
+  return [firstValue(event.code), firstValue(event.stage)].filter(Boolean).join(' | ');
+}
+
+function shouldShowProblemTypeDetail(problemType = '', eventLabel = '') {
+  const normalizedProblemType = normalizeText(problemType);
+  const normalizedEventLabel = normalizeText(eventLabel);
+  if (!normalizedProblemType) return false;
+  if (normalizedProblemType === normalizeText('Проблема')) return false;
+  return normalizedProblemType !== normalizedEventLabel;
+}
+
+function buildCompactPhotoTitle(value, code = '') {
+  const parts = String(value || '')
+    .split('·')
+    .map((part) => String(part || '').trim())
+    .filter(Boolean)
+    .filter((part) => !isCompactPhotoNoisePart(part, code));
+  return parts.join(' · ') || String(value || '').trim() || 'Без названия';
+}
+
+function isCompactPhotoNoisePart(part, code = '') {
+  const normalized = normalizeText(part);
+  if (!normalized) return true;
+  if (code && normalized === normalizeText(code)) return true;
+  if (/^[a-zа-яё]{2,5}\.$/i.test(part.trim())) return true;
+  if (/^(tp|vs|za|vk)-/i.test(part.trim())) return true;
+  return false;
+}
+
+function buildRecentPhotoAlt(event = {}, index = 0, total = 1) {
+  const parts = [event.culture, event.code, buildPhotoEventLabel(event)];
+  if (total > 1) parts.push(`Фото ${index + 1} из ${total}`);
+  return parts.filter(Boolean).join(' · ');
+}
+
+function getRecentPhotoPriority(event = {}) {
+  const type = normalizeText(event.type);
+  const risk = normalizeRisk(event.risk);
+  if (type === 'problem' && (risk === 'critical' || risk === 'high')) return 1;
+  if (['problem', 'contamination', 'quarantine', 'greenhousedisease'].includes(type)) return 2;
+  if (['problemisolation', 'isolatedfromparent'].includes(type)) return 3;
+  if (type === 'problemrecovery') return 4;
+  if (['transplant', 'planting', 'stagechange'].includes(type)) return 5;
+  if (type === 'observation') return 6;
+  if (['greenhousecare', 'adaptationcare', 'hardeningcare', 'plantingcare', 'movement'].includes(type)) return 7;
+  return 8;
+}
+
+function sortRecentPhotoCards(left, right) {
+  return left.priority - right.priority || byNewest(left, right);
+}
+
+function takeEvenRecentPhotos(photos = [], maxCount = 8) {
+  const limited = Array.isArray(photos) ? photos.slice(0, maxCount) : [];
+  if (limited.length > 1 && limited.length % 2 !== 0) {
+    limited.pop();
+  }
+  return limited;
 }
 
 function getProductionMetrics(events = []) {
@@ -799,6 +1046,11 @@ function formatRisk(value) {
   return ({ critical: 'Критический', high: 'Высокий', medium: 'Средний', low: 'Низкий' })[value] || 'Не указан';
 }
 
+function formatCountWithTotalLabel(value, total) {
+  const countLabel = formatCountLabel(value, ['растение', 'растения', 'растений']);
+  return countLabel && total > value ? `${countLabel} из ${total}` : countLabel;
+}
+
 function formatStatus(value) {
   return ({ active: 'Активна', partial: 'Частично', problem: 'Проблема', quarantine: 'Карантин', sold: 'Продана', archived: 'Архив' })[value] || 'Не указан';
 }
@@ -835,6 +1087,14 @@ function getQuantity(event) {
 function getPositiveQuantity(value) {
   const number = Number(value ?? 0);
   return Number.isFinite(number) && number > 0 ? number : 0;
+}
+
+function firstPositiveQuantity(...values) {
+  for (const value of values) {
+    const number = getPositiveQuantity(value);
+    if (number > 0) return number;
+  }
+  return 0;
 }
 
 function toArray(value) {
@@ -904,6 +1164,40 @@ function toTimestamp(value) {
 function formatDateTime(timestamp) {
   if (!timestamp) return 'Дата не указана';
   return new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: DISPLAY_TIME_ZONE }).format(new Date(timestamp));
+}
+
+function formatPhotoModalDateTime(timestamp) {
+  if (!timestamp) return 'Дата не указана';
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: DISPLAY_TIME_ZONE
+  }).format(new Date(timestamp));
+}
+
+function formatPhotoModalHeaderDate(timestamp) {
+  if (!timestamp) return '';
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: '2-digit',
+    month: 'long',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: DISPLAY_TIME_ZONE
+  }).format(new Date(timestamp));
+}
+
+function formatCompactPhotoDate(timestamp) {
+  if (!timestamp) return 'Дата не указана';
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: 'numeric',
+    month: 'long',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: DISPLAY_TIME_ZONE
+  }).format(new Date(timestamp));
 }
 
 function stageRank(value) {

@@ -627,6 +627,175 @@ run('keeps parsed dashboard event photos when raw snapshot photo arrays contain 
   assert.equal(dashboard.recentPhotos[0].url, '/storage/photos/photo-loss-kept.jpg');
 });
 
+run('groups multiple photos from one event into one dashboard photo card with modal payload and journal url', () => {
+  const reports = [report('photo-grouping', '2026-07-15T08:25:43.587Z', [{
+    cardId: 'card-1',
+    code: 'VK-20260715-112138',
+    cultureName: 'Берёза',
+    speciesName: 'белая',
+    stage: 'Введение в культуру',
+    batchStatus: 'problem',
+    currentQuantity: 263,
+    updatedAt: '2026-07-15',
+    events: [{
+      eventId: 'problem-photo-group',
+      type: 'problem',
+      createdAt: '2026-07-15T08:25:43.587Z',
+      createdBy: 'event-photo-user',
+      problemType: 'Контаминация',
+      riskLevel: 'Высокий',
+      affectedQuantity: 12,
+      comment: 'Налёт на листьях',
+      photoFiles: ['photos/problem-1.jpg', 'photos/problem-2.jpg', 'photos/problem-3.jpg']
+    }]
+  }])];
+  reports[0].getPhotoUrl = (photoPath) => `/storage/${photoPath}`;
+
+  const dashboard = buildDashboard(reports, reports[0], reports, { period: 'all', reportId: 'photo-grouping', employee: 'photo-grouping-user' });
+  const [photo] = dashboard.recentPhotos;
+
+  assert.equal(dashboard.recentPhotos.length, 1);
+  assert.equal(photo.url, '/storage/photos/problem-1.jpg');
+  assert.equal(photo.photoCount, 3);
+  assert.equal(photo.extraPhotoCount, 2);
+  assert.equal(photo.eventLabel, 'Контаминация · Высокий риск');
+  assert.equal(photo.card.title, 'Берёза · белая');
+  assert.equal(photo.card.eventLabel, 'Проблема');
+  assert.equal(photo.card.eventLabelText, 'Тип проблемы: Проблема');
+  assert.equal(photo.card.riskLabel, 'Высокий');
+  assert.equal('code' in photo.card, false);
+  assert.equal(photo.modal.photos.length, 3);
+  assert.equal(photo.modal.metaLine, '15 июля в 11:25 · event-photo-user');
+  assert.equal(photo.modal.title, 'Берёза · белая');
+  assert.equal(photo.modal.subtitle, 'VK-20260715-112138 | Введение в культуру');
+  assert.equal(photo.modal.eventLabel, 'Проблема');
+  assert.equal(photo.modal.riskLabel, 'Высокий');
+  assert.equal(photo.modal.dateLabel, '15 июля в 11:25');
+  assert.match(photo.journalUrl, /\/stages\?/);
+  assert.match(photo.journalUrl, /reportId=photo-grouping/);
+  assert.match(photo.journalUrl, /employee=photo-grouping-user/);
+  assert.match(photo.journalUrl, /eventId=problem-photo-group/);
+});
+
+run('removes short technical title segments from compact dashboard photo card titles', () => {
+  const reports = [report('photo-compact-title', '2026-07-15T08:25:43.587Z', [{
+    cardId: 'card-1',
+    code: 'VS-20260720-06',
+    cultureName: 'Гортензия',
+    speciesName: 'мет.',
+    varietyName: 'Vanille Fraise',
+    stage: 'Теплица',
+    batchStatus: 'problem',
+    currentQuantity: 40,
+    updatedAt: '2026-07-15',
+    events: [{
+      eventId: 'compact-title-event',
+      type: 'problem',
+      createdAt: '2026-07-15T08:25:43.587Z',
+      problemType: 'Болезнь',
+      riskLevel: 'Критический',
+      photoFiles: ['photos/problem-1.jpg']
+    }]
+  }])];
+  reports[0].getPhotoUrl = (photoPath) => `/storage/${photoPath}`;
+
+  const dashboard = buildDashboard(reports, reports[0], reports, { period: 'all' });
+
+  assert.equal(dashboard.recentPhotos[0].card.title, 'Гортензия · Vanille Fraise');
+  assert.equal(dashboard.recentPhotos[0].card.eventLabel, 'Проблема');
+  assert.equal(dashboard.recentPhotos[0].card.eventLabelText, 'Тип проблемы: Проблема');
+  assert.equal(dashboard.recentPhotos[0].card.riskLabel, 'Критический');
+  assert.equal(dashboard.recentPhotos[0].modal.subtitle, 'VS-20260720-06 | Теплица');
+});
+
+run('keeps an even number of recent dashboard photo cards', () => {
+  const cards = Array.from({ length: 7 }, (_, index) => ({
+    cardId: `card-${index + 1}`,
+    code: `VK-${index + 1}`,
+    cultureName: `Растение ${index + 1}`,
+    stage: 'Теплица',
+    batchStatus: 'active',
+    currentQuantity: 10,
+    updatedAt: `2026-07-${String(index + 1).padStart(2, '0')}`,
+    events: [{
+      eventId: `photo-${index + 1}`,
+      type: 'greenhouseCare',
+      createdAt: `2026-07-${String(index + 1).padStart(2, '0')}T10:00:00.000Z`,
+      photoFiles: [`photos/${index + 1}.jpg`]
+    }]
+  }));
+  const reports = [report('photo-even-count', '2026-07-18T10:00:00.000Z', cards)];
+  reports[0].getPhotoUrl = (photoPath) => `/storage/${photoPath}`;
+
+  const dashboard = buildDashboard(reports, reports[0], reports, { period: 'all' });
+
+  assert.equal(dashboard.recentPhotos.length, 6);
+});
+
+run('sorts dashboard photo cards by priority before date', () => {
+  const reports = [report('photo-priority', '2026-07-18T10:00:00.000Z', [{
+    cardId: 'card-1',
+    code: 'VK-1',
+    cultureName: 'Мирт',
+    stage: 'Теплица',
+    batchStatus: 'active',
+    currentQuantity: 100,
+    updatedAt: '2026-07-18',
+    events: [
+      { eventId: 'care-photo', type: 'greenhouseCare', createdAt: '2026-07-18T10:00:00.000Z', photoFiles: ['photos/care.jpg'] },
+      { eventId: 'planting-photo', type: 'planting', createdAt: '2026-07-17T10:00:00.000Z', photoFiles: ['photos/planting.jpg'] },
+      { eventId: 'problem-photo', type: 'problem', createdAt: '2026-07-16T10:00:00.000Z', problemType: 'Вредители', riskLevel: 'Критический', photoFiles: ['photos/problem.jpg'] }
+    ]
+  }])];
+  reports[0].getPhotoUrl = (photoPath) => `/storage/${photoPath}`;
+
+  const dashboard = buildDashboard(reports, reports[0], reports, { period: 'all' });
+
+  assert.deepEqual(dashboard.recentPhotos.map((photo) => photo.eventId), ['problem-photo', 'planting-photo']);
+});
+
+run('builds photo modal details for isolation and recovery events', () => {
+  const reports = [report('photo-problem-flows', '2026-07-17T11:00:00.000Z', [{
+    cardId: 'card-1',
+    code: 'VK-PARENT',
+    cultureName: 'Мирт',
+    stage: 'Теплица',
+    batchStatus: 'problem',
+    currentQuantity: 500,
+    updatedAt: '2026-07-17',
+    events: [
+      {
+        eventId: 'problem-isolation-photo',
+        type: 'problemIsolation',
+        createdAt: '2026-07-16T09:00:00.000Z',
+        quantity: 3,
+        location: 'Теплица 2 · стол Т-4',
+        photoFiles: ['photos/isolation.jpg'],
+        extraFields: { childCode: 'VK-ISO' }
+      },
+      {
+        eventId: 'problem-recovery-photo',
+        type: 'problemRecovery',
+        createdAt: '2026-07-17T09:05:00.000Z',
+        recoveredQuantity: 3,
+        photoFiles: ['photos/recovery.jpg']
+      }
+    ]
+  }])];
+  reports[0].getPhotoUrl = (photoPath) => `/storage/${photoPath}`;
+
+  const dashboard = buildDashboard(reports, reports[0], reports, { period: 'all' });
+  const isolationPhoto = dashboard.recentPhotos.find((photo) => photo.eventId === 'problem-isolation-photo');
+  const recoveryPhoto = dashboard.recentPhotos.find((photo) => photo.eventId === 'problem-recovery-photo');
+
+  assert.equal(isolationPhoto.modal.title, 'Мирт');
+  assert.equal(isolationPhoto.modal.eventLabel, 'Изоляция проблемных растений');
+  assert.equal(isolationPhoto.modal.riskLabel, '');
+  assert.equal(recoveryPhoto.modal.title, 'Мирт');
+  assert.equal(recoveryPhoto.modal.eventLabel, 'Проблема решена');
+  assert.equal(recoveryPhoto.modal.riskLabel, '');
+});
+
 run('uses movement location and comment from event fields', () => {
   const reports = [report('movement-details', '2026-07-15T08:25:13.505Z', [{
     cardId: 'card-1',

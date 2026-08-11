@@ -34,6 +34,9 @@
           || dashboard.recentReports[0];
         return selectedReport ? `/reports?employee=${encodeURIComponent(selectedReport.employeeKey)}&reportId=${encodeURIComponent(selectedReport.reportId)}` : '/reports';
       }; %>
+      <% const dashboardPhotosUrl = () => dashboard.selectedReportId
+        ? `/photos?reportId=${encodeURIComponent(dashboard.selectedReportId)}`
+        : '/photos'; %>
       <section class="dashboard-page" data-dashboard-page>
         <div class="dashboard-shell">
           <header class="dashboard-overview-head">
@@ -88,8 +91,8 @@
             </article>
 
             <article class="dashboard-card dashboard-gallery-card">
-              <div class="dashboard-card-head"><div><h2>Последние фото</h2><p>Из событий за период</p></div></div>
-              <%- include('partials/dashboard-gallery', { photos: dashboard.recentPhotos, emptyText: 'За выбранный период фотографий нет.' }) %>
+              <div class="dashboard-card-head"><div><h2>Последние фотофиксации</h2><p>Недавние визуальные фиксации по событиям за период</p></div><a href="<%= dashboardPhotosUrl() %>" class="dashboard-card-link">Все фотофиксации</a></div>
+              <%- include('partials/dashboard-gallery', { photos: dashboard.recentPhotos, emptyText: 'За выбранный период фотофиксаций нет.', compact: true }) %>
             </article>
           </section>
 
