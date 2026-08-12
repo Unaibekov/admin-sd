@@ -4,23 +4,19 @@
 <div class="app-shell">
   <%- include('partials/sidebar', { activePage: 'journal', showDashboardLink }) %>
 
-  <main class="app-main app-main-journal">
-    <section class="global-journal" data-global-journal-page>
-      <header class="global-journal-hero app-page-hero">
-        <div>
-          <h1>Журнал</h1>
-        </div>
+  <main class="app-main app-main-journal" data-global-journal-page>
+      <header class="global-journal-hero">
+        <h1>Журнал</h1>
+        <% if (journal.hasEvents) { %>
+          <section class="global-journal-summary" aria-label="Сводка по найденным событиям">
+            <span>Найдено действий: <strong><%= journal.summary.total %></strong></span>
+            <span>Проблемных действий: <strong><%= journal.summary.problems %></strong></span>
+            <span>Потеряно растений: <strong><%= journal.summary.lostPlants %></strong></span>
+            <span>Продано растений: <strong><%= journal.summary.soldPlants %></strong></span>
+            <span>Действий с фото: <strong><%= journal.summary.photos %></strong></span>
+          </section>
+        <% } %>
       </header>
-
-      <% if (journal.hasEvents) { %>
-        <section class="global-journal-summary" aria-label="Сводка по найденным событиям">
-          <span>Найдено действий: <strong><%= journal.summary.total %></strong></span>
-          <span>Проблемных действий: <strong><%= journal.summary.problems %></strong></span>
-          <span>Потеряно растений: <strong><%= journal.summary.lostPlants %></strong></span>
-          <span>Продано растений: <strong><%= journal.summary.soldPlants %></strong></span>
-          <span>Действий с фото: <strong><%= journal.summary.photos %></strong></span>
-        </section>
-      <% } %>
 
       <section class="global-journal-layout">
         <aside class="global-journal-filter-panel">
@@ -29,12 +25,28 @@
             <% if (journal.selectedReportId) { %><input type="hidden" name="reportId" value="<%= journal.selectedReportId %>"><% } %>
             <label class="global-journal-period">
               <span>Период</span>
-              <select name="period" data-global-journal-period>
-                <% journal.periodOptions.forEach((option) => { %>
-                  <option value="<%= option.value %>" <%= filters.period === option.value ? 'selected' : '' %>><%= option.label %></option>
-                <% }) %>
-              </select>
+              <div class="batches-filter global-journal-dropdown" data-global-journal-filter>
+                <input type="hidden" name="period" value="<%= filters.period %>" data-global-journal-period data-global-journal-filter-input>
+                <button type="button" class="batches-filter-toggle <%= filters.period !== 'all' ? 'has-value' : '' %>" data-global-journal-filter-toggle aria-expanded="false">
+                  <span class="batches-filter-toggle-copy" data-global-journal-filter-label>
+                    <%= (journal.periodOptions.find((option) => option.value === filters.period) || journal.periodOptions[0]).label %>
+                  </span>
+                </button>
+                <nav class="batches-filter-menu" data-global-journal-filter-menu hidden aria-label="Фильтр по периоду">
+                  <% journal.periodOptions.forEach((option) => { %>
+                    <button
+                      type="button"
+                      class="batches-stage-filter-item <%= filters.period === option.value ? 'active' : '' %>"
+                      data-global-journal-filter-option
+                      data-value="<%= option.value %>"
+                      data-label="<%= option.label %>">
+                      <span><%= option.label %></span>
+                    </button>
+                  <% }) %>
+                </nav>
+              </div>
             </label>
+
             <div class="global-journal-custom-range" data-global-journal-custom-range <%= filters.period === 'custom' ? '' : 'hidden' %>>
               <label>
                 <span>С</span>
@@ -45,42 +57,108 @@
                 <input type="date" name="dateTo" value="<%= filters.dateTo %>" data-global-journal-date />
               </label>
             </div>
+
             <label>
               <span>Сотрудник</span>
-              <select name="employee">
-                <% journal.employeeOptions.forEach((option) => { %>
-                  <option value="<%= option.value %>" <%= filters.employee === option.value ? 'selected' : '' %>><%= option.label %></option>
-                <% }) %>
-              </select>
+              <div class="batches-filter global-journal-dropdown" data-global-journal-filter>
+                <input type="hidden" name="employee" value="<%= filters.employee %>" data-global-journal-filter-input>
+                <button type="button" class="batches-filter-toggle <%= filters.employee !== 'all' ? 'has-value' : '' %>" data-global-journal-filter-toggle aria-expanded="false">
+                  <span class="batches-filter-toggle-copy" data-global-journal-filter-label>
+                    <%= (journal.employeeOptions.find((option) => option.value === filters.employee) || journal.employeeOptions[0]).label %>
+                  </span>
+                </button>
+                <nav class="batches-filter-menu global-journal-dropdown-menu-scroll" data-global-journal-filter-menu hidden aria-label="Фильтр по сотруднику">
+                  <% journal.employeeOptions.forEach((option) => { %>
+                    <button
+                      type="button"
+                      class="batches-stage-filter-item <%= filters.employee === option.value ? 'active' : '' %>"
+                      data-global-journal-filter-option
+                      data-value="<%= option.value %>"
+                      data-label="<%= option.label %>">
+                      <span><%= option.label %></span>
+                    </button>
+                  <% }) %>
+                </nav>
+              </div>
             </label>
+
             <label>
               <span>Быстрый фильтр</span>
-              <select name="quick">
-                <% journal.quickOptions.forEach((option) => { %>
-                  <option value="<%= option.value %>" <%= filters.quick === option.value ? 'selected' : '' %>><%= option.label %></option>
-                <% }) %>
-              </select>
+              <div class="batches-filter global-journal-dropdown" data-global-journal-filter>
+                <input type="hidden" name="quick" value="<%= filters.quick %>" data-global-journal-filter-input>
+                <button type="button" class="batches-filter-toggle <%= filters.quick !== 'all' ? 'has-value' : '' %>" data-global-journal-filter-toggle aria-expanded="false">
+                  <span class="batches-filter-toggle-copy" data-global-journal-filter-label>
+                    <%= (journal.quickOptions.find((option) => option.value === filters.quick) || journal.quickOptions[0]).label %>
+                  </span>
+                </button>
+                <nav class="batches-filter-menu" data-global-journal-filter-menu hidden aria-label="Быстрый фильтр">
+                  <% journal.quickOptions.forEach((option) => { %>
+                    <button
+                      type="button"
+                      class="batches-stage-filter-item <%= filters.quick === option.value ? 'active' : '' %>"
+                      data-global-journal-filter-option
+                      data-value="<%= option.value %>"
+                      data-label="<%= option.label %>">
+                      <span><%= option.label %></span>
+                    </button>
+                  <% }) %>
+                </nav>
+              </div>
             </label>
+
             <label>
               <span>Тип события</span>
-              <select name="category">
-                <% journal.categoryOptions.forEach((option) => { %>
-                  <option value="<%= option.value %>" <%= filters.category === option.value ? 'selected' : '' %>><%= option.label %></option>
-                <% }) %>
-              </select>
+              <div class="batches-filter global-journal-dropdown" data-global-journal-filter>
+                <input type="hidden" name="category" value="<%= filters.category %>" data-global-journal-filter-input>
+                <button type="button" class="batches-filter-toggle <%= filters.category !== 'all' ? 'has-value' : '' %>" data-global-journal-filter-toggle aria-expanded="false">
+                  <span class="batches-filter-toggle-copy" data-global-journal-filter-label>
+                    <%= (journal.categoryOptions.find((option) => option.value === filters.category) || journal.categoryOptions[0]).label %>
+                  </span>
+                </button>
+                <nav class="batches-filter-menu" data-global-journal-filter-menu hidden aria-label="Фильтр по типу события">
+                  <% journal.categoryOptions.forEach((option) => { %>
+                    <button
+                      type="button"
+                      class="batches-stage-filter-item <%= filters.category === option.value ? 'active' : '' %>"
+                      data-global-journal-filter-option
+                      data-value="<%= option.value %>"
+                      data-label="<%= option.label %>">
+                      <span><%= option.label %></span>
+                    </button>
+                  <% }) %>
+                </nav>
+              </div>
             </label>
+
             <label>
               <span>Стадия</span>
-              <select name="stage">
-                <% journal.stageOptions.forEach((option) => { %>
-                  <option value="<%= option.value %>" <%= filters.stage === option.value ? 'selected' : '' %>><%= option.label %></option>
-                <% }) %>
-              </select>
+              <div class="batches-filter global-journal-dropdown" data-global-journal-filter>
+                <input type="hidden" name="stage" value="<%= filters.stage %>" data-global-journal-filter-input>
+                <button type="button" class="batches-filter-toggle <%= filters.stage !== 'all' ? 'has-value' : '' %>" data-global-journal-filter-toggle aria-expanded="false">
+                  <span class="batches-filter-toggle-copy" data-global-journal-filter-label>
+                    <%= (journal.stageOptions.find((option) => option.value === filters.stage) || journal.stageOptions[0]).label %>
+                  </span>
+                </button>
+                <nav class="batches-filter-menu" data-global-journal-filter-menu hidden aria-label="Фильтр по стадии">
+                  <% journal.stageOptions.forEach((option) => { %>
+                    <button
+                      type="button"
+                      class="batches-stage-filter-item <%= filters.stage === option.value ? 'active' : '' %>"
+                      data-global-journal-filter-option
+                      data-value="<%= option.value %>"
+                      data-label="<%= option.label %>">
+                      <span><%= option.label %></span>
+                    </button>
+                  <% }) %>
+                </nav>
+              </div>
             </label>
+
             <label class="global-journal-search">
               <span>Партия</span>
               <input type="search" name="q" value="<%= filters.query %>" placeholder="Код, культура, вид или сорт" />
             </label>
+
             <button class="global-journal-apply" type="submit">Показать</button>
           </form>
         </aside>
@@ -109,6 +187,7 @@
                       </span>
                       <strong class="global-journal-plant-count"><%= group.events.length %></strong>
                     </summary>
+
                     <div class="global-journal-events">
                       <% group.events.forEach((event, eventIndex) => { %>
                         <article class="global-journal-event global-journal-event-<%= event.category %>">
@@ -118,12 +197,17 @@
                               <h3><%= event.title %></h3>
                               <% if (event.isImportant) { %><span class="global-journal-important">Важно</span><% } %>
                             </div>
+
                             <% const globalJournalEventDetails = event.comment ? [...event.details, { label: 'Комментарий', value: event.comment }] : event.details; %>
                             <% if (globalJournalEventDetails.length) { %>
                               <dl class="global-journal-details">
-                                <% globalJournalEventDetails.forEach((item) => { %><dt><%= item.label %></dt><dd><%= item.value %></dd><% }) %>
+                                <% globalJournalEventDetails.forEach((item) => { %>
+                                  <dt><%= item.label %></dt>
+                                  <dd><%= item.value %></dd>
+                                <% }) %>
                               </dl>
                             <% } %>
+
                             <% if (event.photos.length) { %>
                               <div class="global-journal-photos">
                                 <% event.photos.forEach((photo, photoIndex) => { %>
@@ -137,20 +221,28 @@
                         </article>
                         <% if (eventIndex < group.events.length - 1) { %><hr class="global-journal-event-divider"><% } %>
                       <% }) %>
-                      <% if (group.batchUrl) { %><a class="global-journal-batch-link" href="<%= group.batchUrl %>">Открыть партию</a><% } %>
+
+                      <% if (group.batchUrl) { %>
+                        <a class="global-journal-batch-link" href="<%= group.batchUrl %>">Открыть партию</a>
+                      <% } %>
                     </div>
                   </details>
                 <% }) %>
               </section>
             <% } else { %>
-              <section class="empty-state global-journal-empty"><h2>Ничего не найдено</h2><p>Попробуйте изменить период или фильтры.</p></section>
+              <section class="empty-state global-journal-empty">
+                <h2>Ничего не найдено</h2>
+                <p>Попробуйте изменить период или фильтры.</p>
+              </section>
             <% } %>
           <% } else { %>
-            <section class="empty-state global-journal-empty"><h2>Пока нет событий</h2><p>Они появятся после загрузки отчетов из Sadovnik Diary.</p></section>
+            <section class="empty-state global-journal-empty">
+              <h2>Пока нет событий</h2>
+              <p>Они появятся после загрузки отчётов из Sadovnik Diary.</p>
+            </section>
           <% } %>
         </section>
       </section>
-    </section>
   </main>
 </div>
 <%- include('partials/footer') %>

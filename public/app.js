@@ -60,6 +60,35 @@
   const dashboardRoot = document.querySelector('[data-dashboard-page]');
   if (dashboardRoot && window.fetch && window.DOMParser && window.history) {
     let dashboardRequest = null;
+    let dashboardResizeFrame = null;
+
+    const balanceDashboardEventColumns = (root = dashboardRoot) => {
+      const recentCard = root.querySelector('.dashboard-recent-events-card');
+      const attentionCard = root.querySelector('.dashboard-attention-card');
+      const recentFeed = recentCard ? recentCard.querySelector('.dashboard-event-feed') : null;
+      if (!recentCard || !attentionCard || !recentFeed) return;
+
+      const extraRows = Array.from(recentFeed.querySelectorAll('[data-dashboard-extra-event="1"]'));
+      extraRows.forEach((row) => { row.hidden = true; });
+
+      if (window.innerWidth <= 1100 || !extraRows.length) return;
+
+      let leftHeight = recentCard.offsetHeight;
+      const rightHeight = attentionCard.offsetHeight;
+
+      for (const row of extraRows) {
+        if (leftHeight + 24 >= rightHeight) break;
+        row.hidden = false;
+        leftHeight = recentCard.offsetHeight;
+      }
+    };
+
+    const scheduleDashboardBalance = () => {
+      if (dashboardResizeFrame) window.cancelAnimationFrame(dashboardResizeFrame);
+      dashboardResizeFrame = window.requestAnimationFrame(() => {
+        balanceDashboardEventColumns();
+      });
+    };
 
     const loadDashboardPeriod = async (href, push = true) => {
       if (dashboardRequest) dashboardRequest.abort();
@@ -82,6 +111,7 @@
         if (!currentShell || !nextShell) throw new Error('Missing dashboard shell');
 
         currentShell.replaceWith(nextShell);
+        scheduleDashboardBalance();
         if (push) window.history.pushState({ dashboardPeriod: true }, '', href);
       } catch (error) {
         if (error.name !== 'AbortError') window.location.href = href;
@@ -105,6 +135,9 @@
     window.addEventListener('popstate', () => {
       if (window.location.pathname === '/') loadDashboardPeriod(window.location.href, false);
     });
+
+    window.addEventListener('resize', scheduleDashboardBalance, { passive: true });
+    scheduleDashboardBalance();
   }
 
   const problemsRoot = document.querySelector('[data-problems-page]');
@@ -670,6 +703,65 @@
 
   const globalJournalRoot = document.querySelector('[data-global-journal-page]');
   if (globalJournalRoot) {
+    const journalFilters = Array.from(globalJournalRoot.querySelectorAll('[data-global-journal-filter]'));
+    if (journalFilters.length) {
+      const updateJournalFilterDirection = (filter) => {
+        const toggle = filter.querySelector('[data-global-journal-filter-toggle]');
+        const menu = filter.querySelector('[data-global-journal-filter-menu]');
+        if (!toggle || !menu) return;
+        filter.classList.remove('is-open-up');
+        menu.hidden = false;
+        const toggleRect = toggle.getBoundingClientRect();
+        const menuRect = menu.getBoundingClientRect();
+        const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+        const spaceBelow = viewportHeight - toggleRect.bottom;
+        const spaceAbove = toggleRect.top;
+        const requiredHeight = Math.min(menuRect.height, viewportHeight - 120);
+        if (spaceBelow < requiredHeight && spaceAbove > spaceBelow) filter.classList.add('is-open-up');
+      };
+
+      const closeJournalFilter = (filter) => {
+        const toggle = filter.querySelector('[data-global-journal-filter-toggle]');
+        const menu = filter.querySelector('[data-global-journal-filter-menu]');
+        if (!toggle || !menu) return;
+        menu.hidden = true;
+        toggle.setAttribute('aria-expanded', 'false');
+      };
+
+      journalFilters.forEach((filter) => {
+        const toggle = filter.querySelector('[data-global-journal-filter-toggle]');
+        const menu = filter.querySelector('[data-global-journal-filter-menu]');
+        const input = filter.querySelector('[data-global-journal-filter-input]');
+        const label = filter.querySelector('[data-global-journal-filter-label]');
+        if (!toggle || !menu || !input || !label) return;
+
+        toggle.addEventListener('click', () => {
+          const willOpen = menu.hidden;
+          journalFilters.forEach(closeJournalFilter);
+          if (willOpen) {
+            updateJournalFilterDirection(filter);
+            toggle.setAttribute('aria-expanded', 'true');
+          } else {
+            closeJournalFilter(filter);
+          }
+        });
+
+        menu.addEventListener('click', (event) => {
+          const option = event.target.closest('[data-global-journal-filter-option]');
+          if (!option) return;
+          input.value = option.dataset.value || '';
+          label.textContent = option.dataset.label || '';
+          toggle.classList.toggle('has-value', input.value !== 'all');
+          menu.querySelectorAll('[data-global-journal-filter-option]').forEach((item) => item.classList.toggle('active', item === option));
+          closeJournalFilter(filter);
+        });
+      });
+
+      document.addEventListener('click', (event) => {
+        if (!journalFilters.some((filter) => filter.contains(event.target))) journalFilters.forEach(closeJournalFilter);
+      });
+    }
+
     const syncCustomRange = () => {
       const period = globalJournalRoot.querySelector('[data-global-journal-period]');
       const customRange = globalJournalRoot.querySelector('[data-global-journal-custom-range]');
