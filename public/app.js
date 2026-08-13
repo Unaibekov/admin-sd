@@ -62,25 +62,8 @@
     let dashboardRequest = null;
     let dashboardResizeFrame = null;
 
-    const balanceDashboardEventColumns = (root = dashboardRoot) => {
-      const recentCard = root.querySelector('.dashboard-recent-events-card');
-      const attentionCard = root.querySelector('.dashboard-attention-card');
-      const recentFeed = recentCard ? recentCard.querySelector('.dashboard-event-feed') : null;
-      if (!recentCard || !attentionCard || !recentFeed) return;
-
-      const extraRows = Array.from(recentFeed.querySelectorAll('[data-dashboard-extra-event="1"]'));
-      extraRows.forEach((row) => { row.hidden = true; });
-
-      if (window.innerWidth <= 1100 || !extraRows.length) return;
-
-      let leftHeight = recentCard.offsetHeight;
-      const rightHeight = attentionCard.offsetHeight;
-
-      for (const row of extraRows) {
-        if (leftHeight + 24 >= rightHeight) break;
-        row.hidden = false;
-        leftHeight = recentCard.offsetHeight;
-      }
+    const balanceDashboardEventColumns = () => {
+      return;
     };
 
     const scheduleDashboardBalance = () => {
@@ -144,6 +127,79 @@
   if (problemsRoot && window.fetch && window.DOMParser && window.history) {
     let problemsRequest = null;
 
+    const bindProblemsFilters = () => {
+      const problemsFilters = Array.from(problemsRoot.querySelectorAll('[data-problems-filter]'));
+      if (!problemsFilters.length) return;
+
+      const updateProblemsFilterDirection = (filter) => {
+        const toggle = filter.querySelector('[data-problems-filter-toggle]');
+        const menu = filter.querySelector('[data-problems-filter-menu]');
+        if (!toggle || !menu) return;
+        filter.classList.remove('is-open-up');
+        menu.hidden = false;
+        const toggleRect = toggle.getBoundingClientRect();
+        const menuRect = menu.getBoundingClientRect();
+        const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+        const spaceBelow = viewportHeight - toggleRect.bottom;
+        const spaceAbove = toggleRect.top;
+        const requiredHeight = Math.min(menuRect.height, viewportHeight - 120);
+        if (spaceBelow < requiredHeight && spaceAbove > spaceBelow) filter.classList.add('is-open-up');
+      };
+
+      const closeProblemsFilter = (filter) => {
+        const toggle = filter.querySelector('[data-problems-filter-toggle]');
+        const menu = filter.querySelector('[data-problems-filter-menu]');
+        if (!toggle || !menu) return;
+        menu.hidden = true;
+        toggle.setAttribute('aria-expanded', 'false');
+      };
+
+      problemsFilters.forEach((filter) => {
+        if (filter.dataset.problemsFilterReady === '1') return;
+        filter.dataset.problemsFilterReady = '1';
+        const toggle = filter.querySelector('[data-problems-filter-toggle]');
+        const menu = filter.querySelector('[data-problems-filter-menu]');
+        const input = filter.querySelector('[data-problems-filter-input]');
+        const label = filter.querySelector('[data-problems-filter-label]');
+        if (!toggle || !menu || !input || !label) return;
+
+        toggle.addEventListener('click', () => {
+          const willOpen = menu.hidden;
+          problemsFilters.forEach(closeProblemsFilter);
+          if (willOpen) {
+            updateProblemsFilterDirection(filter);
+            menu.hidden = false;
+            toggle.setAttribute('aria-expanded', 'true');
+          } else {
+            closeProblemsFilter(filter);
+          }
+        });
+
+        menu.addEventListener('click', (event) => {
+          const option = event.target.closest('[data-problems-filter-option]');
+          if (!option) return;
+          input.value = option.dataset.value || '';
+          label.textContent = option.dataset.label || '';
+          toggle.classList.toggle('has-value', input.value !== 'all');
+          menu.querySelectorAll('[data-problems-filter-option]').forEach((item) => item.classList.toggle('active', item === option));
+          closeProblemsFilter(filter);
+        });
+      });
+    };
+
+    document.addEventListener('click', (event) => {
+      const problemsFilters = Array.from(problemsRoot.querySelectorAll('[data-problems-filter]'));
+      if (!problemsFilters.some((filter) => filter.contains(event.target))) {
+        problemsFilters.forEach((filter) => {
+          const toggle = filter.querySelector('[data-problems-filter-toggle]');
+          const menu = filter.querySelector('[data-problems-filter-menu]');
+          if (!toggle || !menu) return;
+          menu.hidden = true;
+          toggle.setAttribute('aria-expanded', 'false');
+        });
+      }
+    });
+
     const loadProblemsPage = async (href, push = true) => {
       if (problemsRequest) problemsRequest.abort();
       const request = new AbortController();
@@ -165,6 +221,7 @@
         if (!currentShell || !nextShell) throw new Error('Missing problems shell');
 
         currentShell.replaceWith(nextShell);
+        bindProblemsFilters();
         if (push) window.history.pushState({ problemsPage: true }, '', href);
       } catch (error) {
         if (error.name !== 'AbortError') window.location.href = href;
@@ -191,6 +248,8 @@
     window.addEventListener('popstate', () => {
       if (window.location.pathname === '/problems') loadProblemsPage(window.location.href, false);
     });
+
+    bindProblemsFilters();
   }
 
   const batchesFilters = Array.from(document.querySelectorAll('[data-batches-filter]'));
@@ -703,8 +762,10 @@
 
   const globalJournalRoot = document.querySelector('[data-global-journal-page]');
   if (globalJournalRoot) {
-    const journalFilters = Array.from(globalJournalRoot.querySelectorAll('[data-global-journal-filter]'));
-    if (journalFilters.length) {
+    const bindGlobalJournalFilters = () => {
+      const journalFilters = Array.from(globalJournalRoot.querySelectorAll('[data-global-journal-filter]'));
+      if (!journalFilters.length) return;
+
       const updateJournalFilterDirection = (filter) => {
         const toggle = filter.querySelector('[data-global-journal-filter-toggle]');
         const menu = filter.querySelector('[data-global-journal-filter-menu]');
@@ -729,6 +790,8 @@
       };
 
       journalFilters.forEach((filter) => {
+        if (filter.dataset.globalJournalFilterReady === '1') return;
+        filter.dataset.globalJournalFilterReady = '1';
         const toggle = filter.querySelector('[data-global-journal-filter-toggle]');
         const menu = filter.querySelector('[data-global-journal-filter-menu]');
         const input = filter.querySelector('[data-global-journal-filter-input]');
@@ -754,13 +817,25 @@
           toggle.classList.toggle('has-value', input.value !== 'all');
           menu.querySelectorAll('[data-global-journal-filter-option]').forEach((item) => item.classList.toggle('active', item === option));
           closeJournalFilter(filter);
+          if (input.matches('[data-global-journal-period]')) {
+            syncCustomRange();
+          }
         });
       });
+    };
 
-      document.addEventListener('click', (event) => {
-        if (!journalFilters.some((filter) => filter.contains(event.target))) journalFilters.forEach(closeJournalFilter);
-      });
-    }
+    document.addEventListener('click', (event) => {
+      const journalFilters = Array.from(globalJournalRoot.querySelectorAll('[data-global-journal-filter]'));
+      if (!journalFilters.some((filter) => filter.contains(event.target))) {
+        journalFilters.forEach((filter) => {
+          const toggle = filter.querySelector('[data-global-journal-filter-toggle]');
+          const menu = filter.querySelector('[data-global-journal-filter-menu]');
+          if (!toggle || !menu) return;
+          menu.hidden = true;
+          toggle.setAttribute('aria-expanded', 'false');
+        });
+      }
+    });
 
     const syncCustomRange = () => {
       const period = globalJournalRoot.querySelector('[data-global-journal-period]');
@@ -802,6 +877,7 @@
         currentFilterPanel.replaceWith(nextFilterPanel);
         replaceOrRemove('.global-journal-summary', nextDocument);
         currentResults.replaceWith(nextResults);
+        bindGlobalJournalFilters();
         if (push) window.history.pushState({ globalJournal: true }, '', href);
         syncCustomRange();
       } catch (error) {
@@ -835,6 +911,7 @@
       }
     });
 
+    bindGlobalJournalFilters();
     syncCustomRange();
   }
 

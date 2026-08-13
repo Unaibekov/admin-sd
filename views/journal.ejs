@@ -1,6 +1,7 @@
-<%- include('partials/head', { pageTitle }) %>
+﻿<%- include('partials/head', { pageTitle }) %>
 <% const filters = journal.filters; %>
 <% const selectedAuthor = (journal.employeeOptions || []).find((option) => option.value === filters.employee) || { label: 'Все сотрудники' }; %>
+<% const selectedCategory = (journal.categoryOptions || []).find((option) => option.value === filters.category) || { label: 'Все события' }; %>
 <div class="app-shell">
   <%- include('partials/sidebar', { activePage: 'journal', showDashboardLink }) %>
 
@@ -166,8 +167,8 @@
         <section class="global-journal-results">
           <% if (journal.hasEvents) { %>
             <header class="global-journal-results-head">
-              <span>Автор</span>
-              <strong><%= selectedAuthor.label %></strong>
+              <strong><%= selectedCategory.label %></strong>
+              <span><%= selectedAuthor.label %></span>
             </header>
           <% } %>
 
@@ -185,7 +186,6 @@
                           <% if (group.daysInStageLabel) { %><span>Дней на стадии: <%= group.daysInStageLabel %></span><% } %>
                         </span>
                       </span>
-                      <strong class="global-journal-plant-count"><%= group.events.length %></strong>
                     </summary>
 
                     <div class="global-journal-events">
@@ -209,13 +209,18 @@
                             <% } %>
 
                             <% if (event.photos.length) { %>
-                              <div class="global-journal-photos">
-                                <% event.photos.forEach((photo, photoIndex) => { %>
-                                  <button type="button" class="global-journal-photo" data-photo-url="<%= photo %>" data-photo-label="<%= event.title %>, <%= event.code %>">
-                                    <img src="<%= photo %>" alt="Фото события <%= photoIndex + 1 %>" />
-                                  </button>
-                                <% }) %>
-                              </div>
+                              <dl class="global-journal-details global-journal-details-photos">
+                                <dt>Фото</dt>
+                                <dd>
+                                  <div class="global-journal-photos">
+                                    <% event.photos.forEach((photo, photoIndex) => { %>
+                                      <button type="button" class="global-journal-photo" data-photo-url="<%= photo %>" data-photo-label="<%= event.title %>, <%= event.code %>">
+                                        <img src="<%= photo %>" alt="Фото события <%= photoIndex + 1 %>" />
+                                      </button>
+                                    <% }) %>
+                                  </div>
+                                </dd>
+                              </dl>
                             <% } %>
                           </div>
                         </article>

@@ -2,8 +2,7 @@
 <div class="app-shell">
   <%- include('partials/sidebar', { activePage: 'reports', showDashboardLink }) %>
 
-  <main class="app-main app-main-report-dashboard">
-    <section class="report-dashboard-page">
+  <main class="app-main app-main-report-dashboard report-dashboard-page">
       <div class="report-dashboard-shell">
         <% const employeeOptions = Array.isArray(reportsPage && reportsPage.employees) ? reportsPage.employees : []; %>
         <% const selectedEmployeeKey = reportsPage && reportsPage.selectedEmployeeKey ? reportsPage.selectedEmployeeKey : ''; %>
@@ -165,7 +164,6 @@
           <% } %>
         <% } %>
       </div>
-    </section>
   </main>
 </div>
 <%- include('partials/footer') %>

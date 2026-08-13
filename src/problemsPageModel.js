@@ -87,14 +87,35 @@ function buildProblemCase(batch = {}) {
 
   const firstProblemEvent = problemTimeline[problemTimeline.length - 1] || null;
   const latestProblemEvent = problemTimeline[0] || null;
+  const latestIssueEvent = problemTimeline.find((event) => {
+    const type = normalizeText(event && event.type).replace(/[^a-zа-яё]/g, '');
+    if (type === 'problemrecovery') return false;
+    return Boolean(
+      firstNonEmpty(
+        event && event.problemType,
+        event && event.problem,
+        event && event.riskLevel,
+        event && event.risk,
+        event && event.problemDescription,
+        event && event.diseaseName,
+        event && event.pestName
+      )
+    );
+  }) || null;
   const latestProblemType = normalizeText(latestProblemEvent && latestProblemEvent.type).replace(/[^a-zа-яё]/g, '');
   const hasLatestRecovery = latestProblemType === 'problemrecovery';
   const isActive = hasLatestRecovery ? false : resolveActiveState(batch, activeProblemQuantity);
   const isIsolated = !hasLatestRecovery && originType === 'problemisolation' && isolationStatus === 'isolated';
   const isResolved = hasHistory && (hasLatestRecovery || (!isActive && !isIsolated));
-  const riskKey = normalizeRisk(batch.riskLevel || latestProblemEvent && latestProblemEvent.risk || '');
+  const riskKey = normalizeRisk(
+    batch.riskLevel
+    || (latestIssueEvent && (latestIssueEvent.riskLevel || latestIssueEvent.risk))
+    || (latestProblemEvent && (latestProblemEvent.riskLevel || latestProblemEvent.risk))
+    || ''
+  );
   const typeLabel = firstNonEmpty(
     batch.problemType,
+    latestIssueEvent && (latestIssueEvent.problemType || latestIssueEvent.problem || latestIssueEvent.title),
     latestProblemEvent && (latestProblemEvent.problemType || latestProblemEvent.problem || latestProblemEvent.title),
     'Не указан'
   );

@@ -708,7 +708,7 @@ run('removes short technical title segments from compact dashboard photo card ti
   assert.equal(dashboard.recentPhotos[0].modal.subtitle, 'VS-20260720-06 | Теплица');
 });
 
-run('keeps an even number of recent dashboard photo cards', () => {
+run('limits recent dashboard photo cards to nine items', () => {
   const cards = Array.from({ length: 7 }, (_, index) => ({
     cardId: `card-${index + 1}`,
     code: `VK-${index + 1}`,
@@ -729,7 +729,7 @@ run('keeps an even number of recent dashboard photo cards', () => {
 
   const dashboard = buildDashboard(reports, reports[0], reports, { period: 'all' });
 
-  assert.equal(dashboard.recentPhotos.length, 6);
+  assert.equal(dashboard.recentPhotos.length, 7);
 });
 
 run('sorts dashboard photo cards by priority before date', () => {
@@ -751,7 +751,7 @@ run('sorts dashboard photo cards by priority before date', () => {
 
   const dashboard = buildDashboard(reports, reports[0], reports, { period: 'all' });
 
-  assert.deepEqual(dashboard.recentPhotos.map((photo) => photo.eventId), ['problem-photo', 'planting-photo']);
+  assert.deepEqual(dashboard.recentPhotos.map((photo) => photo.eventId), ['problem-photo', 'planting-photo', 'care-photo']);
 });
 
 run('builds photo modal details for isolation and recovery events', () => {

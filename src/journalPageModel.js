@@ -1,4 +1,4 @@
-const { resolveReportEmployeeKey } = require('./reportsPageModel');
+﻿const { resolveReportEmployeeKey } = require('./reportsPageModel');
 
 const STAGES = [
   'Введение в культуру',
@@ -83,7 +83,7 @@ function buildJournalPageModel(reports = [], query = {}) {
     batchUrl: appendReportContext(event.batchUrl, selectedReportId)
   }));
   const groups = groupEventsByDate(events);
-  const cardGroups = groupEventsByCard(events);
+  const cardGroups = groupEventsByCard(events, filters);
 
   return {
     events,
@@ -240,8 +240,27 @@ function sumEventQuantity(events, category) {
 }
 
 function getEventQuantity(event) {
-  const value = Number(readEventField(event, 'count') || readEventField(event, 'quantity'));
-  return Number.isFinite(value) && value > 0 ? value : 0;
+  const directCandidates = [
+    Number(readEventField(event, 'count')),
+    Number(readEventField(event, 'quantity')),
+    Number(readEventField(event, 'affectedQuantity')),
+    Number(readEventField(event, 'recoveredQuantity'))
+  ];
+  const directValue = directCandidates.find((candidate) => Number.isFinite(candidate) && candidate > 0);
+  if (directValue) return directValue;
+
+  const previousQuantity = Number(readEventField(event, 'previousQuantity'));
+  const currentQuantity = Number(readEventField(event, 'currentQuantity'));
+  if (Number.isFinite(previousQuantity) && Number.isFinite(currentQuantity) && previousQuantity > currentQuantity) {
+    return previousQuantity - currentQuantity;
+  }
+
+  return 0;
+}
+
+function getEventQuantityLabel(event) {
+  const quantity = getEventQuantity(event);
+  return quantity > 0 ? withUnits(quantity) : '';
 }
 
 function isVisiblePlantPart(value) {
@@ -337,7 +356,7 @@ function groupEventsByDate(events = []) {
     .map((group) => ({ ...group, events: group.events.sort((left, right) => right.timestamp - left.timestamp) }));
 }
 
-function groupEventsByCard(events = []) {
+function groupEventsByCard(events = [], filters = {}) {
   const groups = new Map();
   for (const event of Array.isArray(events) ? events : []) {
     const key = event.batchKey || event.cardId || event.code || event.culture;
@@ -365,6 +384,14 @@ function groupEventsByCard(events = []) {
       ...group,
       events: group.events.sort((left, right) => right.timestamp - left.timestamp)
     }))
+    .map((group) => {
+      const quantityTotal = group.events.reduce((total, event) => total + getEventQuantity(event), 0);
+      const countValue = filters.category === 'sales' && quantityTotal > 0 ? quantityTotal : group.events.length;
+      return {
+        ...group,
+        countValue
+      };
+    })
     .sort((left, right) => (right.latestEventAt || 0) - (left.latestEventAt || 0));
 }
 
@@ -398,7 +425,7 @@ function getDaysInStage(value) {
 function formatDaysInStage(days) {
   const value = Number(days) || 0;
   if (!value) return '';
-  return `${value} дн. в стадии`;
+  return String(value);
 }
 
 function resolveFilters(query = {}, employeeOptions = []) {
@@ -511,12 +538,12 @@ function buildEventDetails(event, category) {
     push('Готовность к высадке', get('readinessForPlanting'));
     push('Комментарий', get('comment'));
   } else if (category === 'losses') {
-    push('Потеряно', withUnits(get('count') || get('quantity')));
+    push('Потеряно', getEventQuantityLabel(event));
     push('Было', withUnits(get('previousQuantity')));
     push('Остаток', withUnits(get('currentQuantity')));
     push('Причина', get('reason') || get('lossReason'));
   } else if (category === 'sales') {
-    push('Продано', withUnits(get('count') || get('quantity')));
+    push('Продано', getEventQuantityLabel(event));
     push('Было', withUnits(get('previousQuantity')));
     push('Остаток', withUnits(get('currentQuantity')));
     push('Получатель', get('recipient'));
@@ -525,7 +552,7 @@ function buildEventDetails(event, category) {
     push('Дочерняя партия', get('childCode') || get('childCardId'));
     push('Родительская партия', get('parentCode') || get('parentCardId'));
     push('Поколение', get('generation'));
-    push('Добавлено', withUnits(get('count') || get('quantity')));
+    push('Добавлено', getEventQuantityLabel(event));
     push('Было', withUnits(get('previousQuantity')));
     push('Стало', withUnits(get('currentQuantity')));
     push('Способ размножения', get('propagationMethod'));

@@ -2,8 +2,7 @@
 <div class="app-shell">
   <%- include('partials/sidebar', { activePage: 'problems', showDashboardLink }) %>
 
-  <main class="app-main app-main-report-dashboard">
-    <section class="report-dashboard-page" data-problems-page>
+  <main class="app-main app-main-report-dashboard report-dashboard-page" data-problems-page>
       <div class="report-dashboard-shell problems-page">
         <header class="report-dashboard-head reports-page-head">
           <div>
@@ -21,38 +20,98 @@
             <form class="reports-filters-form problems-filters-form" method="get" action="/problems">
               <label class="reports-filter-field">
                 <span>Сотрудник</span>
-                <select name="employee">
-                  <% problems.filters.employeeOptions.forEach((option) => { %>
-                    <option value="<%= option.value %>" <%= problems.filters.employee === option.value ? 'selected' : '' %>><%= option.label %></option>
-                  <% }) %>
-                </select>
+                <div class="batches-filter global-journal-dropdown" data-problems-filter>
+                  <input type="hidden" name="employee" value="<%= problems.filters.employee %>" data-problems-filter-input>
+                  <button type="button" class="batches-filter-toggle <%= problems.filters.employee !== 'all' ? 'has-value' : '' %>" data-problems-filter-toggle aria-expanded="false">
+                    <span class="batches-filter-toggle-copy" data-problems-filter-label>
+                      <%= (problems.filters.employeeOptions.find((option) => option.value === problems.filters.employee) || problems.filters.employeeOptions[0]).label %>
+                    </span>
+                  </button>
+                  <nav class="batches-filter-menu global-journal-dropdown-menu-scroll" data-problems-filter-menu hidden aria-label="Фильтр по сотруднику">
+                    <% problems.filters.employeeOptions.forEach((option) => { %>
+                      <button
+                        type="button"
+                        class="batches-stage-filter-item <%= problems.filters.employee === option.value ? 'active' : '' %>"
+                        data-problems-filter-option
+                        data-value="<%= option.value %>"
+                        data-label="<%= option.label %>">
+                        <span><%= option.label %></span>
+                      </button>
+                    <% }) %>
+                  </nav>
+                </div>
               </label>
 
               <label class="reports-filter-field">
                 <span>Тип проблемы</span>
-                <select name="type">
-                  <% problems.filters.typeOptions.forEach((option) => { %>
-                    <option value="<%= option.value %>" <%= problems.filters.type === option.value ? 'selected' : '' %>><%= option.label %></option>
-                  <% }) %>
-                </select>
+                <div class="batches-filter global-journal-dropdown" data-problems-filter>
+                  <input type="hidden" name="type" value="<%= problems.filters.type %>" data-problems-filter-input>
+                  <button type="button" class="batches-filter-toggle <%= problems.filters.type !== 'all' ? 'has-value' : '' %>" data-problems-filter-toggle aria-expanded="false">
+                    <span class="batches-filter-toggle-copy" data-problems-filter-label>
+                      <%= (problems.filters.typeOptions.find((option) => option.value === problems.filters.type) || problems.filters.typeOptions[0]).label %>
+                    </span>
+                  </button>
+                  <nav class="batches-filter-menu" data-problems-filter-menu hidden aria-label="Фильтр по типу проблемы">
+                    <% problems.filters.typeOptions.forEach((option) => { %>
+                      <button
+                        type="button"
+                        class="batches-stage-filter-item <%= problems.filters.type === option.value ? 'active' : '' %>"
+                        data-problems-filter-option
+                        data-value="<%= option.value %>"
+                        data-label="<%= option.label %>">
+                        <span><%= option.label %></span>
+                      </button>
+                    <% }) %>
+                  </nav>
+                </div>
               </label>
 
               <label class="reports-filter-field">
                 <span>Риск</span>
-                <select name="risk">
-                  <% problems.filters.riskOptions.forEach((option) => { %>
-                    <option value="<%= option.value %>" <%= problems.filters.risk === option.value ? 'selected' : '' %>><%= option.label %></option>
-                  <% }) %>
-                </select>
+                <div class="batches-filter global-journal-dropdown" data-problems-filter>
+                  <input type="hidden" name="risk" value="<%= problems.filters.risk %>" data-problems-filter-input>
+                  <button type="button" class="batches-filter-toggle <%= problems.filters.risk !== 'all' ? 'has-value' : '' %>" data-problems-filter-toggle aria-expanded="false">
+                    <span class="batches-filter-toggle-copy" data-problems-filter-label>
+                      <%= (problems.filters.riskOptions.find((option) => option.value === problems.filters.risk) || problems.filters.riskOptions[0]).label %>
+                    </span>
+                  </button>
+                  <nav class="batches-filter-menu" data-problems-filter-menu hidden aria-label="Фильтр по риску">
+                    <% problems.filters.riskOptions.forEach((option) => { %>
+                      <button
+                        type="button"
+                        class="batches-stage-filter-item <%= problems.filters.risk === option.value ? 'active' : '' %>"
+                        data-problems-filter-option
+                        data-value="<%= option.value %>"
+                        data-label="<%= option.label %>">
+                        <span><%= option.label %></span>
+                      </button>
+                    <% }) %>
+                  </nav>
+                </div>
               </label>
 
               <label class="reports-filter-field">
                 <span>Статус</span>
-                <select name="status">
-                  <% problems.filters.statusOptions.forEach((option) => { %>
-                    <option value="<%= option.value %>" <%= problems.filters.status === option.value ? 'selected' : '' %>><%= option.label %></option>
-                  <% }) %>
-                </select>
+                <div class="batches-filter global-journal-dropdown" data-problems-filter>
+                  <input type="hidden" name="status" value="<%= problems.filters.status %>" data-problems-filter-input>
+                  <button type="button" class="batches-filter-toggle <%= problems.filters.status !== 'all' ? 'has-value' : '' %>" data-problems-filter-toggle aria-expanded="false">
+                    <span class="batches-filter-toggle-copy" data-problems-filter-label>
+                      <%= (problems.filters.statusOptions.find((option) => option.value === problems.filters.status) || problems.filters.statusOptions[0]).label %>
+                    </span>
+                  </button>
+                  <nav class="batches-filter-menu" data-problems-filter-menu hidden aria-label="Фильтр по статусу">
+                    <% problems.filters.statusOptions.forEach((option) => { %>
+                      <button
+                        type="button"
+                        class="batches-stage-filter-item <%= problems.filters.status === option.value ? 'active' : '' %>"
+                        data-problems-filter-option
+                        data-value="<%= option.value %>"
+                        data-label="<%= option.label %>">
+                        <span><%= option.label %></span>
+                      </button>
+                    <% }) %>
+                  </nav>
+                </div>
               </label>
 
               <button type="submit" class="button reports-filter-submit">Показать</button>
@@ -213,7 +272,6 @@
           </section>
         <% } %>
       </div>
-    </section>
   </main>
 </div>
 <%- include('partials/footer') %>

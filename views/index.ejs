@@ -41,7 +41,7 @@
         <div class="dashboard-shell">
           <header class="dashboard-overview-head">
             <div>
-              <h1>Дашборд</h1>
+              <h1>Главная</h1>
               <p>Текущее состояние партий и активность команды.</p>
             </div>
             <nav class="dashboard-period-switcher" aria-label="Период дашборда">
@@ -68,10 +68,10 @@
               }) %>
             </article>
 
-            <article class="dashboard-card">
+            <article class="dashboard-card dashboard-attention-card">
               <div class="dashboard-card-head"><div><h2>Проблемные партии</h2><p>Требуют внимания сейчас</p></div><a class="dashboard-card-link" href="<%= dashboardJournalUrl({ category: 'problems' }) %>">Все проблемы</a></div>
               <%- include('partials/dashboard-event-feed', {
-                events: dashboard.attentionEvents.slice(0, 5),
+                events: dashboard.attentionEvents,
                 feedClass: 'dashboard-attention-list',
                 forceAttention: true,
                 emptyText: 'Нет партий, требующих внимания.',
